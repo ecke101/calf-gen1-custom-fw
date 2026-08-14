@@ -1,0 +1,15 @@
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-security.ArrayBound,
+  clang-analyzer-security.ArrayBoundV2,
+  bugprone-branch-clone,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-enum-usage,
+  bugprone-suspicious-include,
+  bugprone-suspicious-memory-comparison,
+  bugprone-suspicious-memset-usage,
+  bugprone-suspicious-realloc-usage,
+  bugprone-suspicious-semicolon
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^.*/ui/(include|src)/.*'

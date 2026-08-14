@@ -1,0 +1,10 @@
+VisualOn AAC encoder source vendored for the self-contained target build.
+
+Upstream: https://github.com/mstorsjo/vo-aacenc.git
+Commit: a277487e051e92e99a532294eed3c673f4d879f2
+License: Apache-2.0 (see COPYING and NOTICE)
+
+Only the portable encoder, common memory helper, and required headers are
+included. Sample programs, Android framework wrappers, documentation, and
+32-bit ARM assembly are intentionally omitted. The camera uses the portable
+fixed-point implementation on AArch64.

@@ -1,0 +1,31 @@
+/build/
+/.venv/
+/.pytest_cache/
+/.ruff_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Official camera firmware is a local build input and must never be committed.
+/*.tar
+/*.tar.gz
+/*.tgz
+/*.zip
+*.bin
+*.img
+*.elf
+*.ko
+*.o
+*.a
+*.so
+*.so.*
+
+# Camera captures, dumps, and generated media do not belong in this repository.
+*.bmp
+*.dng
+*.jpeg
+*.jpg
+*.mp4
+*.png
+*.raw
+*.wav

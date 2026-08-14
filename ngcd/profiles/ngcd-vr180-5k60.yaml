@@ -1,0 +1,40 @@
+config:
+  camera-mode: SBS_STITCH
+  isp-mode: 1
+  sensor:
+    mode: 0
+    width: 3520
+    height: 3040
+    fps: 60
+  vcap:
+    width: 3360
+    height: 2880
+    fps: 60
+  vout:
+    enable: 1
+    width: 3840
+    height: 2160
+    fps: 30
+  stitch:
+    mode: VR180
+    width: 5120
+    height: 2560
+    fovx: 36000
+    fovy: 18000
+  venc:
+    - vcodec: H264
+      rcmode: CBR
+      profile: HIGH
+      width: 5120
+      height: 2560
+      fps: 60
+      bitrate: 150000
+      gop: 60
+    - vcodec: H264
+      rcmode: CBR
+      profile: HIGH
+      width: 5120
+      height: 2560
+      fps: 60
+      bitrate: 30000
+      gop: 20

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calf-gen1-custom-fw"
+dynamic = ["version"]
+description = "Incremental custom backend and UI for CALF VR180 GEN1"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = [
+  "LICENSE",
+  "LICENSES/*.txt",
+  "NOTICE",
+  "PROVENANCE.md",
+  "REUSE.toml",
+  "THIRD_PARTY_LICENSES.md",
+  "ngcd/vendor/libxaac/LICENSE",
+  "ngcd/vendor/libxaac/NOTICE",
+  "ngcd/vendor/libxaac/ORIGIN.md",
+  "ngcd/vendor/vo-aacenc/COPYING",
+  "ngcd/vendor/vo-aacenc/NOTICE",
+  "ngcd/vendor/vo-aacenc/README.calf",
+  "ui/assets/fonts/OFL.txt",
+  "ui/assets/fonts/README.md",
+  "ui/third_party/README.md",
+  "ui/third_party/stb/LICENSE",
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "reuse>=6.2",
+  "ruff>=0.12",
+]
+
+[project.scripts]
+calf-fw = "calf_fw_tool.cli:main"
+calf-custom-fw-install = "calf_fw_tool.deploy:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0+unknown"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["build", "ngcd/vendor"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
