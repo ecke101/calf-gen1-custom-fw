@@ -1,6 +1,10 @@
 #include "target_internal.h"
 #include "calf_sha256.h"
 
+#ifndef CALF_FIRMWARE_VERSION
+#define CALF_FIRMWARE_VERSION "2.2.1"
+#endif
+
 static int update_read_exact(int descriptor, unsigned char *buffer,
                              size_t count)
 {
@@ -112,7 +116,7 @@ static int firmware_identity_matches(const char *identity_path,
                                      const char digest[65])
 {
     static const char prefix[] =
-        "CALF-VR180-GEN1 2.2.1\nSHA256 ";
+        "CALF-VR180-GEN1 " CALF_FIRMWARE_VERSION "\nSHA256 ";
     char identity[128];
     size_t index;
     size_t prefix_length = sizeof(prefix) - 1u;

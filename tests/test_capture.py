@@ -127,6 +127,7 @@ class CaptureCoordinatorTests(unittest.TestCase):
         fail_image_attempts: int = 0,
         fail_snapshot: bool = False,
         stale_raw_triggers: bool = False,
+        profile_has_image_params: bool = True,
     ) -> tuple[str, list[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -159,11 +160,14 @@ class CaptureCoordinatorTests(unittest.TestCase):
         fake_raw_converter.chmod(
             fake_raw_converter.stat().st_mode | stat.S_IXUSR
         )
+        image_params = (
+            "image_params:\n" f"  iso: {iso}\n" f"  exp: {exp}\n"
+            if profile_has_image_params
+            else ""
+        )
         profile.write_text(
             "cam_mode: photo\n"
-            "image_params:\n"
-            f"  iso: {iso}\n"
-            f"  exp: {exp}\n"
+            f"{image_params}"
             "wlan:\n"
             "  enable: true\n",
             encoding="ascii",
@@ -259,6 +263,18 @@ class CaptureCoordinatorTests(unittest.TestCase):
             "reclaimed stale capture lock",
             (temp / "capture.log").read_text(encoding="ascii"),
         )
+
+    def test_216_profile_without_image_section_clears_preview_transients(self) -> None:
+        output, calls, _ = self._run_request(
+            "unused", "unused", profile_has_image_params=False
+        )
+
+        self.assertIn("HTTP/1.1 200 OK", output)
+        combined = "\n".join(calls)
+        self.assertIn('"type":"exp","value":"-1"', combined)
+        self.assertIn('"type":"iso","value":"auto"', combined)
+        self.assertLess(combined.index('"type":"exp"'), combined.index("/snapshot"))
+        self.assertLess(combined.index('"type":"iso"'), combined.index("/snapshot"))
 
     def test_live_lock_owner_remains_busy(self) -> None:
         output, calls, _ = self._run_request("-1", "auto", live_lock=True)

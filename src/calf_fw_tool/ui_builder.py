@@ -96,6 +96,7 @@ def build_ui_binary(
             "-Wextra",
             "-Werror",
             "-pedantic",
+            f'-DCALF_FIRMWARE_VERSION="{firmware.version}"',
             f"-I{ui_source / 'include'}",
             "-nostdlib",
             "-fuse-ld=lld",

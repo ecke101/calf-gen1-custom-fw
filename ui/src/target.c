@@ -709,6 +709,7 @@ static int save_stock_image_parameter(const char *key, const char *value)
 {
     static char source[PROFILE_BUFFER_SIZE];
     static char output[PROFILE_BUFFER_SIZE];
+    char addition[80];
     const char *section;
     const char *section_end;
     const char *line;
@@ -727,7 +728,19 @@ static int save_stock_image_parameter(const char *key, const char *value)
         section = find_text(source, "\nimage_params:\n");
         if(section != (const char *)0) ++section;
     }
-    if(section == (const char *)0) return -1;
+    if(section == (const char *)0) {
+        size_t used = 0;
+        const char *end = source + string_length(source);
+        addition[0] = '\0';
+        if(end != source && end[-1] != '\n')
+            buffer_append(addition, sizeof(addition), &used, "\n");
+        buffer_append(addition, sizeof(addition), &used, "image_params:\n  ");
+        buffer_append(addition, sizeof(addition), &used, key);
+        buffer_append(addition, sizeof(addition), &used, ": ");
+        buffer_append(addition, sizeof(addition), &used, value);
+        buffer_append(addition, sizeof(addition), &used, "\n");
+        return write_profile_edit(source, end, end, addition);
+    }
     section_end = top_level_section_end(section);
     pattern[0] = '\0';
     buffer_append(pattern, sizeof(pattern), &pattern_used, "\n  ");

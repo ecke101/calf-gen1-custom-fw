@@ -127,6 +127,17 @@ def test_image_setter_retries_one_shot_coordinator_restart() -> None:
     assert perform_action.count('http_request("POST", path, fixed_body') == 2
 
 
+def test_image_profile_save_migrates_stock_216_profile() -> None:
+    target = (REPOSITORY_ROOT / "ui/src/target.c").read_text(encoding="utf-8")
+    start = target.index("static int save_stock_image_parameter(")
+    end = target.index("static int parse_decimal_string(", start)
+    save_image = target[start:end]
+
+    assert 'if(section == (const char *)0) {' in save_image
+    assert '"image_params:\\n  "' in save_image
+    assert "return write_profile_edit(source, end, end, addition);" in save_image
+
+
 def test_deep_idle_wake_accepts_release_and_lights_lcd_before_graph() -> None:
     target = (REPOSITORY_ROOT / "ui/src/target.c").read_text(encoding="utf-8")
     platform = (REPOSITORY_ROOT / "ui/src/target_platform.c").read_text(

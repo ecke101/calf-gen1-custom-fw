@@ -1113,7 +1113,7 @@ static int target_night_preview(struct ngcd_backend *backend, int fps,
             fprintf(stderr,
                     "ngcd: Night preview bridge failed at 0.12 s ISO %u (%d)\n",
                     iso, result);
-            failure = -30;
+            failure = result != -1 ? result : -30;
             goto rollback;
         }
     }
@@ -1123,7 +1123,7 @@ static int target_night_preview(struct ngcd_backend *backend, int fps,
             fprintf(stderr,
                     "ngcd: Night preview target failed at %.7g s ISO %u (%d)\n",
                     (double)exposure, iso, result);
-            failure = -40;
+            failure = result != -1 ? result : -40;
             goto rollback;
         }
     }
@@ -1628,7 +1628,8 @@ static void read_capture_trace(char trace[64])
 static void capture_tracef(const char *trace, const char *stage,
                            const char *result, const char *format, ...)
 {
-    static const char log_path[] = "/media/DCIM/calf-capture.log";
+    static const char log_path[] =
+        "/mnt/mmcblk1p1/DCIM/calf-capture.log";
     struct timespec now;
     char line[768];
     size_t used = 0U;

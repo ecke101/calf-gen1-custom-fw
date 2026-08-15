@@ -93,7 +93,7 @@ lock_owner=$lock_dir/owner
 fps_state=${CALF_CAPTURE_FPS_STATE:-/tmp/calf-capture-fps}
 night_stack_count_file=${CALF_NIGHT_STACK_COUNT:-/tmp/calf-night-stack-count}
 trace_file=${CALF_CAPTURE_TRACE_FILE:-/tmp/calf-capture-trace}
-log_file=${CALF_CAPTURE_LOG:-/media/DCIM/calf-capture.log}
+log_file=${CALF_CAPTURE_LOG:-/mnt/mmcblk1p1/DCIM/calf-capture.log}
 raw_enabled_file=${CALF_RAW_ENABLED_FILE:-/local/calf-raw-enabled}
 raw_capture_dir=${CALF_RAW_CAPTURE_DIR:-/tmp/capture_image}
 raw_count_c0=${CALF_RAW_COUNT_C0:-/tmp/.capture_cnt_c0}
@@ -671,6 +671,18 @@ esac
 log_trace "stage=profile exp=$exp iso=$iso capture_exp=$capture_exp fps=$capture_fps stack=$night_stack_count raw_count=$raw_capture_count"
 
 if [ "$capture_fps" = 30 ]; then
+    # A 2.1.6 stock profile has no image_params section. In that migration
+    # case exp/iso intentionally fall back to AUTO, but still apply the pair
+    # before capture so a Night-preview transient cannot make the backend
+    # reject an otherwise ordinary snapshot.
+    log_trace "stage=image-params begin exp=$exp iso=$iso"
+    if ! apply_image_params "$exp"; then
+        log_trace "stage=image-params result=failed response=$post_response"
+        respond '502 Bad Gateway' \
+            '{"code":-1,"message":"exposure setup failed"}'
+        exit 0
+    fi
+    log_trace "stage=image-params result=ok"
     log_trace "stage=raw-prepare begin"
     if ! prepare_raw_capture; then
         respond '507 Insufficient Storage' \
