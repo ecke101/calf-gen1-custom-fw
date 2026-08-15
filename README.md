@@ -75,18 +75,22 @@ your computer.
 
 ### macOS
 
-Download `calf-installer-macos-arm64` for an Apple Silicon Mac or
-`calf-installer-macos-x86_64` for an Intel Mac. Open Terminal in the download
-directory and run:
+Download `calf-installer-macos-arm64.command.zip` for an Apple Silicon Mac or
+`calf-installer-macos-x86_64.command.zip` for an Intel Mac. Double-click the
+ZIP file, then Control-click the extracted `.command` file and choose
+**Open**. The installer opens in Terminal and asks for the camera IP address.
+
+These installers are not Apple-notarized. If macOS still blocks the installer,
+approve it under **System Settings > Privacy & Security**, then open it again.
+
+You can alternatively run it from Terminal:
 
 ```sh
-chmod +x calf-installer-macos-arm64
-./calf-installer-macos-arm64 CAMERA_IP
+chmod +x calf-installer-macos-arm64.command
+./calf-installer-macos-arm64.command CAMERA_IP
 ```
 
-For an Intel Mac, substitute `calf-installer-macos-x86_64`. The installers are
-not Apple-notarized. If macOS blocks the downloaded installer, approve it under
-**System Settings > Privacy & Security**, then run it again.
+For an Intel Mac, substitute `calf-installer-macos-x86_64.command`.
 
 The installer verifies the package, camera model, firmware version, hardware
 revision, and idle state before asking for confirmation. It stages and checks
@@ -124,7 +128,7 @@ Windows PowerShell:
 macOS:
 
 ```sh
-./calf-installer-macos-arm64 CAMERA_IP --rollback
+./calf-installer-macos-arm64.command CAMERA_IP --rollback
 ```
 
 The equivalent command on the camera is:

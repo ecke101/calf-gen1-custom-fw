@@ -24,9 +24,9 @@ jobs:
           - runner: windows-latest
             artifact: calf-installer-windows-x86_64
           - runner: macos-15
-            artifact: calf-installer-macos-arm64
+            artifact: calf-installer-macos-arm64.command
           - runner: macos-15-intel
-            artifact: calf-installer-macos-x86_64
+            artifact: calf-installer-macos-x86_64.command
     runs-on: ${{ matrix.runner }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -56,6 +56,17 @@ jobs:
             "release-input/$PACKAGE_NAME" \
             --output dist \
             --name "$ARTIFACT_NAME"
+      - name: Package the macOS installer
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          installer="dist/$ARTIFACT_NAME"
+          archive="$installer.zip"
+          chmod +x "$installer"
+          ditto -c -k --keepParent "$installer" "$archive"
+          rm -f "$installer" "$installer.sha256"
+          cd dist
+          shasum -a 256 "$ARTIFACT_NAME.zip" > "$ARTIFACT_NAME.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
