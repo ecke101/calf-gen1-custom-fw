@@ -23,6 +23,10 @@ jobs:
             artifact: calf-installer-linux-x86_64
           - runner: windows-latest
             artifact: calf-installer-windows-x86_64
+          - runner: macos-15
+            artifact: calf-installer-macos-arm64
+          - runner: macos-15-intel
+            artifact: calf-installer-macos-x86_64
     runs-on: ${{ matrix.runner }}
     env:
       GH_TOKEN: ${{ github.token }}

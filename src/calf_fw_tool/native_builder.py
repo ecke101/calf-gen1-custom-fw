@@ -16,6 +16,8 @@ def default_name() -> str:
         return f"calf-installer-windows-{architecture}"
     if system == "linux":
         return f"calf-installer-linux-{architecture}"
+    if system == "darwin":
+        return f"calf-installer-macos-{architecture}"
     raise RuntimeError(f"unsupported native installer platform: {system}/{machine}")
 
 

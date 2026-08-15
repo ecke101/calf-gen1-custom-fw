@@ -73,6 +73,21 @@ Allow the installer on private networks if Windows Firewall asks. During
 installation, the camera briefly downloads the embedded package directly from
 your computer.
 
+### macOS
+
+Download `calf-installer-macos-arm64` for an Apple Silicon Mac or
+`calf-installer-macos-x86_64` for an Intel Mac. Open Terminal in the download
+directory and run:
+
+```sh
+chmod +x calf-installer-macos-arm64
+./calf-installer-macos-arm64 CAMERA_IP
+```
+
+For an Intel Mac, substitute `calf-installer-macos-x86_64`. The installers are
+not Apple-notarized. If macOS blocks the downloaded installer, approve it under
+**System Settings > Privacy & Security**, then run it again.
+
 The installer verifies the package, camera model, firmware version, hardware
 revision, and idle state before asking for confirmation. It stages and checks
 all files before activating them. If the replacement process pair does not
@@ -104,6 +119,12 @@ Windows PowerShell:
 
 ```powershell
 .\calf-installer-windows-x86_64.exe CAMERA_IP --rollback
+```
+
+macOS:
+
+```sh
+./calf-installer-macos-arm64 CAMERA_IP --rollback
 ```
 
 The equivalent command on the camera is:
