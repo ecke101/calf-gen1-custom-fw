@@ -350,6 +350,14 @@ struct fake_acp_api {
     int detail_set_calls;
     int fail_detail_call;
     float exposure_time_scale;
+    unsigned int exposure_get_sync_mode[2];
+    unsigned char exposure_get_done[2];
+    unsigned int exposure_set_sync_mode[2];
+    unsigned char exposure_set_done[2];
+    struct ngcd_rk_aiq_exp_sw_attr exposure_pending[2];
+    int exposure_pending_gets[2];
+    int exposure_async_delay;
+    bool exposure_pending_valid[2];
 };
 
 static int fake_acp_sensor(void *sensor_context)
@@ -526,9 +534,21 @@ static int fake_get_exposure(void *context, void *sensor_context,
                              struct ngcd_rk_aiq_exp_sw_attr *attribute)
 {
     struct fake_acp_api *fake = context;
+    unsigned int sync_mode;
     int sensor = fake_acp_sensor(sensor_context);
     if (sensor < 0 || sensor == fake->fail_get_sensor)
         return -1;
+    memcpy(&sync_mode, attribute->bytes, sizeof(sync_mode));
+    fake->exposure_get_sync_mode[sensor] = sync_mode;
+    fake->exposure_get_done[sensor] = attribute->bytes[4U];
+    if (sync_mode == 1U && fake->exposure_pending_valid[sensor]) {
+        if (fake->exposure_pending_gets[sensor] == 0) {
+            fake->exposure[sensor] = fake->exposure_pending[sensor];
+            fake->exposure_pending_valid[sensor] = false;
+        } else {
+            --fake->exposure_pending_gets[sensor];
+        }
+    }
     memcpy(attribute, &fake->exposure[sensor], sizeof(*attribute));
     return 0;
 }
@@ -538,22 +558,35 @@ static int fake_set_exposure(
     const struct ngcd_rk_aiq_exp_sw_attr *attribute)
 {
     struct fake_acp_api *fake = context;
+    struct ngcd_rk_aiq_exp_sw_attr *stored;
+    unsigned int sync_mode;
     int sensor = fake_acp_sensor(sensor_context);
     if (sensor < 0 || sensor == fake->fail_set_sensor)
         return -1;
-    memcpy(&fake->exposure[sensor], attribute, sizeof(*attribute));
+    memcpy(&sync_mode, attribute->bytes, sizeof(sync_mode));
+    fake->exposure_set_sync_mode[sensor] = sync_mode;
+    fake->exposure_set_done[sensor] = attribute->bytes[4U];
+    if (sync_mode == 2U && fake->exposure_async_delay > 0) {
+        stored = &fake->exposure_pending[sensor];
+        fake->exposure_pending_gets[sensor] = fake->exposure_async_delay;
+        fake->exposure_pending_valid[sensor] = true;
+    } else {
+        stored = &fake->exposure[sensor];
+        fake->exposure_pending_valid[sensor] = false;
+    }
+    memcpy(stored, attribute, sizeof(*attribute));
     if (fake->exposure_time_scale > 0.0f) {
         float time_min;
         float time_max;
-        memcpy(&time_min, fake->exposure[sensor].bytes + 0x480U,
+        memcpy(&time_min, stored->bytes + 0x480U,
                sizeof(time_min));
-        memcpy(&time_max, fake->exposure[sensor].bytes + 0x484U,
+        memcpy(&time_max, stored->bytes + 0x484U,
                sizeof(time_max));
         time_min *= fake->exposure_time_scale;
         time_max *= fake->exposure_time_scale;
-        memcpy(fake->exposure[sensor].bytes + 0x480U, &time_min,
+        memcpy(stored->bytes + 0x480U, &time_min,
                sizeof(time_min));
-        memcpy(fake->exposure[sensor].bytes + 0x484U, &time_max,
+        memcpy(stored->bytes + 0x484U, &time_max,
                sizeof(time_max));
     }
     return 0;
@@ -780,6 +813,21 @@ static void test_rockchip_acp_controls(void)
     assert(fake_load_f32(&fake.exposure[1], 0x11cU) == 30.0f);
     assert(fake_load_f32(&fake.exposure[0], 0x480U) == 0.125f);
     assert(fake_load_f32(&fake.exposure[0], 0x484U) == 0.25f);
+    assert(fake.exposure_get_sync_mode[0] == 1U);
+    assert(fake.exposure_get_sync_mode[1] == 1U);
+    assert(fake.exposure_get_done[0] == 0U);
+    assert(fake.exposure_get_done[1] == 0U);
+    assert(fake.exposure_set_sync_mode[0] == 2U);
+    assert(fake.exposure_set_sync_mode[1] == 2U);
+    assert(fake.exposure_set_done[0] == 0U);
+    assert(fake.exposure_set_done[1] == 0U);
+    fake.exposure_async_delay = 2;
+    assert(ngcd_rk_image_set_exposure_iso(
+               &graph, 0.002f, false, 400U,
+               &exposure_readback, &iso_readback) == 0);
+    assert(fake_load_f32(&fake.exposure[0], 0x480U) == 0.002f);
+    assert(fake_load_f32(&fake.exposure[1], 0x480U) == 0.002f);
+    fake.exposure_async_delay = 0;
     assert(ngcd_rk_image_set_iso(&graph, 101U, &iso_readback) != 0);
     original_exposure[0] = fake.exposure[0];
     original_exposure[1] = fake.exposure[1];

@@ -1,9 +1,17 @@
 #include "ngcd_rk.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
+#define EXPOSURE_SYNC_MODE_OFFSET 0x000U
+#define EXPOSURE_SYNC_DONE_OFFSET 0x004U
+#define EXPOSURE_GET_SYNC_MODE 1U
+#define EXPOSURE_SET_ASYNC_MODE 2U
+#define EXPOSURE_VERIFY_ATTEMPTS 24U
+#define EXPOSURE_VERIFY_DELAY_NS 50000000L
 #define EXPOSURE_OPERATION_OFFSET 0x01cU
 #define EXPOSURE_AUTO_FPS_FIXED_OFFSET 0x118U
 #define EXPOSURE_AUTO_FPS_VALUE_OFFSET 0x11cU
@@ -323,6 +331,28 @@ static float load_f32(const unsigned char *bytes, size_t offset)
     return value;
 }
 
+static void prepare_exposure_get(
+    struct ngcd_rk_aiq_exp_sw_attr *attribute)
+{
+    memset(attribute, 0, sizeof(*attribute));
+    store_u32(attribute->bytes, EXPOSURE_SYNC_MODE_OFFSET,
+              EXPOSURE_GET_SYNC_MODE);
+}
+
+static void prepare_exposure_set(
+    struct ngcd_rk_aiq_exp_sw_attr *attribute)
+{
+    store_u32(attribute->bytes, EXPOSURE_SYNC_MODE_OFFSET,
+              EXPOSURE_SET_ASYNC_MODE);
+    attribute->bytes[EXPOSURE_SYNC_DONE_OFFSET] = 0U;
+}
+
+static void wait_before_exposure_verification(void)
+{
+    struct timespec delay = {0, EXPOSURE_VERIFY_DELAY_NS};
+    while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+}
+
 static bool exposure_range_matches(float actual, float requested)
 {
     float difference = actual - requested;
@@ -343,10 +373,15 @@ static void rollback_exposure(
     const unsigned int *sensor_index, size_t count)
 {
     size_t index;
-    for (index = 0; index < count; ++index)
+    for (index = 0; index < count; ++index) {
+        struct ngcd_rk_aiq_exp_sw_attr rollback_attribute;
+        memcpy(&rollback_attribute, &original[index],
+               sizeof(rollback_attribute));
+        prepare_exposure_set(&rollback_attribute);
         (void)graph->api->aiq_set_exposure(
             graph->api_context, graph->sensor_handle[sensor_index[index]],
-            &original[index]);
+            &rollback_attribute);
+    }
 }
 
 int ngcd_rk_image_set_iso(struct ngcd_rk_graph *graph, unsigned int iso,
@@ -381,6 +416,7 @@ int ngcd_rk_image_set_iso(struct ngcd_rk_graph *graph, unsigned int iso,
     }
     for (index = 0; index < count; ++index) {
         unsigned int sensor = sensor_index[index];
+        prepare_exposure_get(&original[index]);
         if (graph->sensor_handle[sensor] == NULL ||
             graph->api->aiq_get_exposure(
                 graph->api_context, graph->sensor_handle[sensor],
@@ -389,7 +425,10 @@ int ngcd_rk_image_set_iso(struct ngcd_rk_graph *graph, unsigned int iso,
     }
     for (index = 0; index < count; ++index) {
         unsigned int sensor = sensor_index[index];
+        unsigned int attempt;
+        int verified_result = -1;
         memcpy(&updated, &original[index], sizeof(updated));
+        prepare_exposure_set(&updated);
         store_u32(updated.bytes, EXPOSURE_OPERATION_OFFSET, 1U);
         set_capture_frame_rate(updated.bytes, frame_rate);
         updated.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] = 1U;
@@ -397,14 +436,28 @@ int ngcd_rk_image_set_iso(struct ngcd_rk_graph *graph, unsigned int iso,
         store_f32(updated.bytes, EXPOSURE_GAIN_MAX_OFFSET, gain_max);
         if (graph->api->aiq_set_exposure(
                 graph->api_context, graph->sensor_handle[sensor],
-                &updated) != 0 ||
-            graph->api->aiq_get_exposure(
-                graph->api_context, graph->sensor_handle[sensor],
-                &verified) != 0 ||
-            load_u32(verified.bytes, EXPOSURE_OPERATION_OFFSET) != 1U ||
-            verified.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] != 1U ||
-            load_f32(verified.bytes, EXPOSURE_GAIN_MIN_OFFSET) != gain_min ||
-            load_f32(verified.bytes, EXPOSURE_GAIN_MAX_OFFSET) != gain_max) {
+                &updated) == 0) {
+            for (attempt = 0U; attempt < EXPOSURE_VERIFY_ATTEMPTS;
+                 ++attempt) {
+                prepare_exposure_get(&verified);
+                if (graph->api->aiq_get_exposure(
+                        graph->api_context, graph->sensor_handle[sensor],
+                        &verified) == 0 &&
+                    load_u32(verified.bytes,
+                             EXPOSURE_OPERATION_OFFSET) == 1U &&
+                    verified.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] == 1U &&
+                    load_f32(verified.bytes, EXPOSURE_GAIN_MIN_OFFSET) ==
+                        gain_min &&
+                    load_f32(verified.bytes, EXPOSURE_GAIN_MAX_OFFSET) ==
+                        gain_max) {
+                    verified_result = 0;
+                    break;
+                }
+                if (attempt + 1U < EXPOSURE_VERIFY_ATTEMPTS)
+                    wait_before_exposure_verification();
+            }
+        }
+        if (verified_result != 0) {
             rollback_exposure(graph, original, sensor_index, index + 1U);
             return -1;
         }
@@ -432,6 +485,7 @@ int ngcd_rk_image_set_exposure(struct ngcd_rk_graph *graph, float seconds,
         return -1;
     for (index = 0; index < count; ++index) {
         unsigned int sensor = sensor_index[index];
+        prepare_exposure_get(&original[index]);
         if (graph->sensor_handle[sensor] == NULL ||
             graph->api->aiq_get_exposure(
                 graph->api_context, graph->sensor_handle[sensor],
@@ -440,7 +494,10 @@ int ngcd_rk_image_set_exposure(struct ngcd_rk_graph *graph, float seconds,
     }
     for (index = 0; index < count; ++index) {
         unsigned int sensor = sensor_index[index];
+        unsigned int attempt;
+        int verified_result = -1;
         memcpy(&updated, &original[index], sizeof(updated));
+        prepare_exposure_set(&updated);
         store_u32(updated.bytes, EXPOSURE_OPERATION_OFFSET, 1U);
         set_capture_frame_rate(updated.bytes, frame_rate);
         updated.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] = 1U;
@@ -448,14 +505,28 @@ int ngcd_rk_image_set_exposure(struct ngcd_rk_graph *graph, float seconds,
         store_f32(updated.bytes, EXPOSURE_TIME_MAX_OFFSET, requested);
         if (graph->api->aiq_set_exposure(
                 graph->api_context, graph->sensor_handle[sensor],
-                &updated) != 0 ||
-            graph->api->aiq_get_exposure(
-                graph->api_context, graph->sensor_handle[sensor],
-                &verified) != 0 ||
-            load_u32(verified.bytes, EXPOSURE_OPERATION_OFFSET) != 1U ||
-            verified.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] != 1U ||
-            load_f32(verified.bytes, EXPOSURE_TIME_MIN_OFFSET) != requested ||
-            load_f32(verified.bytes, EXPOSURE_TIME_MAX_OFFSET) != requested) {
+                &updated) == 0) {
+            for (attempt = 0U; attempt < EXPOSURE_VERIFY_ATTEMPTS;
+                 ++attempt) {
+                prepare_exposure_get(&verified);
+                if (graph->api->aiq_get_exposure(
+                        graph->api_context, graph->sensor_handle[sensor],
+                        &verified) == 0 &&
+                    load_u32(verified.bytes,
+                             EXPOSURE_OPERATION_OFFSET) == 1U &&
+                    verified.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] == 1U &&
+                    load_f32(verified.bytes, EXPOSURE_TIME_MIN_OFFSET) ==
+                        requested &&
+                    load_f32(verified.bytes, EXPOSURE_TIME_MAX_OFFSET) ==
+                        requested) {
+                    verified_result = 0;
+                    break;
+                }
+                if (attempt + 1U < EXPOSURE_VERIFY_ATTEMPTS)
+                    wait_before_exposure_verification();
+            }
+        }
+        if (verified_result != 0) {
             rollback_exposure(graph, original, sensor_index, index + 1U);
             return -1;
         }
@@ -500,6 +571,7 @@ int ngcd_rk_image_set_exposure_iso(struct ngcd_rk_graph *graph,
     }
     for (index = 0U; index < count; ++index) {
         unsigned int sensor = sensor_index[index];
+        prepare_exposure_get(&original[index]);
         if (graph->sensor_handle[sensor] == NULL)
             return EXPOSURE_PAIR_CONTEXT - (int)sensor;
         if (graph->api->aiq_get_exposure(
@@ -508,9 +580,13 @@ int ngcd_rk_image_set_exposure_iso(struct ngcd_rk_graph *graph,
             return EXPOSURE_PAIR_READ_ORIGINAL - (int)sensor;
     }
     for (index = 0U; index < count; ++index) {
+        struct ngcd_rk_aiq_exp_sw_attr candidate;
         unsigned int sensor = sensor_index[index];
+        unsigned int attempt;
+        bool got_readback = false;
         int result = 0;
         memcpy(&updated, &original[index], sizeof(updated));
+        prepare_exposure_set(&updated);
         store_u32(updated.bytes, EXPOSURE_OPERATION_OFFSET, 1U);
         set_capture_frame_rate(updated.bytes, frame_rate);
         updated.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] = 1U;
@@ -522,9 +598,42 @@ int ngcd_rk_image_set_exposure_iso(struct ngcd_rk_graph *graph,
                 graph->api_context, graph->sensor_handle[sensor],
                 &updated) != 0)
             result = EXPOSURE_PAIR_WRITE - (int)sensor;
-        else if (graph->api->aiq_get_exposure(
-                     graph->api_context, graph->sensor_handle[sensor],
-                     &verified) != 0)
+        else {
+            for (attempt = 0U; attempt < EXPOSURE_VERIFY_ATTEMPTS;
+                 ++attempt) {
+                prepare_exposure_get(&candidate);
+                if (graph->api->aiq_get_exposure(
+                        graph->api_context, graph->sensor_handle[sensor],
+                        &candidate) == 0) {
+                    memcpy(&verified, &candidate, sizeof(verified));
+                    got_readback = true;
+                }
+                if (got_readback &&
+                    load_u32(verified.bytes,
+                             EXPOSURE_OPERATION_OFFSET) == 1U &&
+                    verified.bytes[EXPOSURE_RANGE_ENABLE_OFFSET] == 1U &&
+                    exposure_range_matches(
+                        load_f32(verified.bytes,
+                                 EXPOSURE_TIME_MIN_OFFSET),
+                        requested_time) &&
+                    exposure_range_matches(
+                        load_f32(verified.bytes,
+                                 EXPOSURE_TIME_MAX_OFFSET),
+                        requested_time) &&
+                    load_f32(verified.bytes, EXPOSURE_GAIN_MIN_OFFSET) ==
+                        gain_min &&
+                    load_f32(verified.bytes, EXPOSURE_GAIN_MAX_OFFSET) ==
+                        gain_max)
+                    break;
+                if (attempt + 1U < EXPOSURE_VERIFY_ATTEMPTS)
+                    wait_before_exposure_verification();
+            }
+        }
+        if (result != 0) {
+            rollback_exposure(graph, original, sensor_index, index + 1U);
+            return result;
+        }
+        if (!got_readback)
             result = EXPOSURE_PAIR_READBACK - (int)sensor;
         else if (load_u32(verified.bytes, EXPOSURE_OPERATION_OFFSET) != 1U)
             result = EXPOSURE_PAIR_OPERATION - (int)sensor;
@@ -1099,6 +1208,7 @@ int ngcd_rk_image_read(const struct ngcd_rk_graph *graph,
         unsigned int sharpness;
         unsigned int sensor = sensor_index[index];
         memset(&current, 0, sizeof(current));
+        prepare_exposure_get(&exposure);
         if (graph->sensor_handle[sensor] == NULL ||
             graph->api->aiq_get_acp(
                 graph->api_context, graph->sensor_handle[sensor], &acp) != 0 ||
