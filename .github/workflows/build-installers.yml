@@ -1,0 +1,62 @@
+name: Build native installers
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag containing the clean firmware package
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            artifact: calf-installer-linux-x86_64
+          - runner: windows-latest
+            artifact: calf-installer-windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+      PACKAGE_NAME: calf-custom-fw-2.1.6.tar.gz
+      ARTIFACT_NAME: ${{ matrix.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download the audited release payload
+        shell: bash
+        run: |
+          mkdir release-input
+          gh release download "$RELEASE_TAG" \
+            --pattern "$PACKAGE_NAME" \
+            --dir release-input
+      - name: Install the native packager
+        run: python -m pip install --disable-pip-version-check ".[installer]"
+      - name: Build the native installer
+        shell: bash
+        run: |
+          python tools/build_installer.py \
+            "release-input/$PACKAGE_NAME" \
+            --output dist \
+            --name "$ARTIFACT_NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Attach installer and checksum to the release
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber

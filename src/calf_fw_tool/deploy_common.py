@@ -68,7 +68,11 @@ def camera_preflight(
     if not isinstance(product_body, dict):
         raise DeployError("productinfo response has no object body")
 
-    version = str(product_body.get("version", ""))
+    reported_version = str(product_body.get("version", ""))
+    version = reported_version
+    custom_separator = " / ngcd-c-"
+    if custom_separator in reported_version:
+        version = reported_version.split(custom_separator, 1)[0]
     hardware = str(product_body.get("hardware", ""))
     if version not in SUPPORTED_CAMERA_VERSIONS and not allow_version_mismatch:
         supported = ", ".join(sorted(SUPPORTED_CAMERA_VERSIONS))
@@ -94,6 +98,7 @@ def camera_preflight(
 
     return {
         "version": version,
+        "reported_version": reported_version,
         "hardware": hardware,
         "product": str(product_body.get("product", "camera")),
     }

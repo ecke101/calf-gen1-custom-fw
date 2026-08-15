@@ -7,6 +7,7 @@ from pathlib import Path
 from calf_fw_tool.package_builder import (
     _LICENSE_FILES,
     PACKAGE_ROOT,
+    PAYLOAD_DESTINATIONS,
     _installer_script,
     _write_package,
 )
@@ -21,6 +22,7 @@ def _fake_payload() -> dict[str, dict[str, object]]:
         "calf-ngcd",
         "calf-raw2dng",
         "calf-sensor-timing",
+        "calf-sha256",
         "calf-snapshot-request",
         "calf-ui",
         "calf-wlan",
@@ -46,6 +48,7 @@ def test_installer_preserves_stock_as_hard_links_and_has_rollback(tmp_path) -> N
                 "ngcd": ("a" * 64, "b" * 64),
                 "ngui": ("c" * 64, "d" * 64),
                 "iq": ("e" * 64, "f" * 64),
+                "nginx": ("1" * 64, "2" * 64),
             },
         ),
         encoding="ascii",
@@ -61,9 +64,21 @@ def test_installer_preserves_stock_as_hard_links_and_has_rollback(tmp_path) -> N
     assert "rollback_to_stock" in text
     assert "CISMinFps" in text
     assert "restore_stock_iq" in text
+    assert "restore_stock_nginx" in text
+    assert 'alias    /mnt/mmcblk1p1/;' in text
+    assert "verify_download_route" in text
+    assert "http://127.0.0.1/download/" in text
+    assert "nginx.conf-calf-custom-fw-stock" in text
     assert "/local/calf-custom-fw-uninstall --rollback" in text
     assert "vpupdate.bin" not in text
     assert "app.img" not in text
+    assert "$payload_hashes" not in text
+    assert "$destinations" not in text
+    assert "--preflight" in text
+    assert "CALF installation preflight passed." in text
+    assert 'case "$state" in Z|X|x) continue ;; esac' in text
+    for name in _fake_payload():
+        assert f"{name} /app/bin/{name}" in text
 
 
 def test_package_writer_is_deterministic_and_contains_only_given_tree(tmp_path) -> None:
@@ -106,3 +121,8 @@ def test_package_licensing_and_provenance_sources_are_complete() -> None:
     assert set(_LICENSE_FILES) == expected
     assert _LICENSE_FILES["LICENSES/Apache-2.0.txt"] == "LICENSE"
     assert all((ROOT / source).is_file() for source in _LICENSE_FILES.values())
+
+
+def test_runtime_destinations_are_limited_to_application_bin() -> None:
+    assert set(PAYLOAD_DESTINATIONS) == set(_fake_payload())
+    assert all(path.startswith("/app/bin/") for path in PAYLOAD_DESTINATIONS.values())

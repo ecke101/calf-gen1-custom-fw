@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_TOP_LEVEL = {
     ".clang-tidy",
     ".gitattributes",
+    ".github",
     ".gitignore",
     "LICENSE",
     "LICENSES",
@@ -101,7 +102,9 @@ def tracked_paths() -> set[str]:
     if (ROOT / ".git").is_dir():
         return {
             value.decode()
-            for value in git_output("ls-files", "-z").split(b"\0")
+            for value in git_output(
+                "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+            ).split(b"\0")
             if value
         }
     return {
@@ -127,13 +130,21 @@ def tracked_paths() -> set[str]:
 def history_paths() -> set[str]:
     if not (ROOT / ".git").is_dir():
         return set()
-    output = git_output("rev-list", "--objects", "--all").decode(
-        errors="replace"
+    objects = git_output("rev-list", "--objects", "--all")
+    result = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objecttype) %(rest)"],
+        cwd=ROOT,
+        input=objects,
+        check=False,
+        capture_output=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode(errors="replace").strip())
+    output = result.stdout.decode(errors="replace")
     return {
         path
         for line in output.splitlines()
-        if " " in line
+        if line.startswith("blob ")
         for path in (line.split(" ", 1)[1],)
         if path
     }

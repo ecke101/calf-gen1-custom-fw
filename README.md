@@ -76,6 +76,36 @@ Installation is persistent and requires Telnet access. Keep UART and a tested
 recovery SD available, use external power, and stop recording, streaming, and
 playback first.
 
+For a normal installation, download the native installer for your computer
+from the GitHub release. The clean firmware payload is embedded; Python and the
+official camera update archive are not required.
+
+Linux:
+
+```sh
+chmod +x calf-installer-linux-x86_64
+./calf-installer-linux-x86_64 CAMERA_IP
+```
+
+Windows PowerShell:
+
+```powershell
+.\calf-installer-windows-x86_64.exe CAMERA_IP
+```
+
+The stock camera login is `root` with an empty password, which the installer
+uses by default. Pass `--ask-password` only if the camera has been configured
+with a non-empty Telnet password. On Windows, allow the installer on private
+networks when Windows Firewall asks; the camera must briefly download the
+embedded payload from the installer. Either executable can verify its embedded
+payload without contacting a camera:
+
+```sh
+calf-installer-linux-x86_64 --verify
+```
+
+Developers can run the source entry point instead:
+
 ```sh
 ./scripts/install CAMERA_IP build/release/calf-custom-fw-2.1.6.tar.gz
 ```
@@ -88,6 +118,11 @@ not become stable.
 Settings > General > Stock UI selects both preserved stock processes for the
 remainder of the boot. A crash in either replacement process makes the same
 paired transition. To remove the custom firmware persistently:
+
+Captured media can be browsed and downloaded without authentication at
+`http://CAMERA_IP/download/` while the camera is reachable on the network.
+The route exposes the active SD-card root, so disable Wi-Fi when it is not
+needed on untrusted networks.
 
 ```sh
 ./scripts/install --rollback CAMERA_IP

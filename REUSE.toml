@@ -4,6 +4,7 @@ version = 1
 path = [
   ".clang-tidy",
   ".gitattributes",
+  ".github/**",
   ".gitignore",
   "Makefile",
   "NOTICE",

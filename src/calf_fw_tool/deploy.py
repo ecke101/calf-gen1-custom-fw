@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import gzip
 import hashlib
 import ipaddress
 import json
@@ -9,6 +10,7 @@ import os
 import re
 import sys
 import tarfile
+import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
@@ -29,6 +31,29 @@ def _sha256(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _md5(path: Path) -> str:
+    digest = hashlib.md5(usedforsecurity=False)
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def materialize_camera_tar(package: Path, destination: Path) -> None:
+    """Decompress the package for stock BusyBox tar, which lacks gzip."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with gzip.open(package, "rb") as source, destination.open("wb") as target:
+            while chunk := source.read(1024 * 1024):
+                target.write(chunk)
+        with tarfile.open(destination, "r:") as archive:
+            if not archive.getmembers():
+                raise DeployError("decompressed camera package is empty")
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise DeployError(f"cannot prepare stock-compatible camera tar: {error}") from error
 
 
 def validate_package(package: Path) -> dict[str, object]:
@@ -80,6 +105,10 @@ def validate_package(package: Path) -> dict[str, object]:
             payload = manifest.get("payload")
             if not isinstance(payload, dict) or not payload:
                 raise DeployError("package manifest has no payload")
+            if "calf-sha256" not in payload:
+                raise DeployError(
+                    "package predates the stock-compatible SHA-256 helper"
+                )
             licenses = manifest.get("licenses")
             if not isinstance(licenses, list) or any(
                 not isinstance(name, str) for name in licenses
@@ -142,12 +171,20 @@ def validate_package(package: Path) -> dict[str, object]:
     return manifest
 
 
-def install_script(url: str, size: int, digest: str) -> str:
+def install_script(
+    url: str,
+    size: int,
+    digest: str,
+    md5_digest: str,
+    helper_digest: str,
+) -> str:
     return f"""set -u
 url='{url}'
 expected_size='{size}'
 expected_sha256='{digest}'
-archive=/tmp/calf-custom-fw-package-$$.tar.gz
+expected_md5='{md5_digest}'
+expected_helper_sha256='{helper_digest}'
+archive=/tmp/calf-custom-fw-package-$$.tar
 directory=/tmp/calf-custom-fw-install-$$
 
 cleanup()
@@ -167,25 +204,50 @@ trap 'cleanup; exit 1' HUP INT TERM
 [ ! -e "$archive" ] || exit 1
 [ ! -e "$directory" ] || exit 1
 mkdir "$directory" || exit 1
-/usr/bin/wget -O "$archive" "$url" || exit 1
+if command -v curl >/dev/null 2>&1; then
+    curl -f "$url" -o "$archive" || exit 1
+elif command -v wget >/dev/null 2>&1; then
+    wget -O "$archive" "$url" || exit 1
+else
+    echo "Camera has neither curl nor wget for package download" >&2
+    exit 1
+fi
 actual_size=$(wc -c < "$archive") || exit 1
 [ "$actual_size" = "$expected_size" ] || {{
     echo "Package download size mismatch" >&2
     exit 1
 }}
-actual_sha256=$(sha256sum "$archive" | awk '{{print $1}}') || exit 1
-[ "$actual_sha256" = "$expected_sha256" ] || {{
-    echo "Package download SHA-256 mismatch" >&2
+command -v md5sum >/dev/null 2>&1 || {{
+    echo "Camera md5sum is unavailable" >&2
     exit 1
 }}
-tar -xzf "$archive" -C "$directory" || exit 1
+actual_md5=$(md5sum "$archive" | awk '{{print $1}}') || exit 1
+[ "$actual_md5" = "$expected_md5" ] || {{
+    echo "Package download checksum mismatch" >&2
+    exit 1
+}}
+tar -xf "$archive" -C "$directory" || exit 1
 [ -x "$directory/{PACKAGE_ROOT}/install.sh" ] || exit 1
+hash_tool="$directory/{PACKAGE_ROOT}/bin/calf-sha256"
+[ -x "$hash_tool" ] || exit 1
+actual_helper_sha256=$("$hash_tool" "$hash_tool") || exit 1
+[ "$actual_helper_sha256" = "$expected_helper_sha256" ] || {{
+    echo "Package SHA-256 helper mismatch" >&2
+    exit 1
+}}
+"$directory/{PACKAGE_ROOT}/install.sh" --preflight || exit 1
 "$directory/{PACKAGE_ROOT}/install.sh"
 """
 
 
 def _connect(args: argparse.Namespace) -> TelnetSession:
-    password = getpass.getpass(f"Telnet password for {args.username}@{args.camera}: ")
+    password = (
+        getpass.getpass(
+            f"Telnet password for {args.username}@{args.camera}: "
+        )
+        if args.ask_password
+        else ""
+    )
     session = TelnetSession(args.camera, args.telnet_port, args.timeout)
     try:
         session.login(args.username, password)
@@ -193,6 +255,27 @@ def _connect(args: argparse.Namespace) -> TelnetSession:
         session.close()
         raise
     return session
+
+
+def _default_package(repository_root: Path) -> Path:
+    bundle_root_value = getattr(sys, "_MEIPASS", None)
+    candidates = []
+    if isinstance(bundle_root_value, str):
+        candidates.append(
+            Path(bundle_root_value) / "calf_installer_payload" / PACKAGE_NAME
+        )
+    candidates.extend(
+        (
+            Path(sys.executable).resolve().parent / PACKAGE_NAME,
+            repository_root / "build/release" / PACKAGE_NAME,
+        )
+    )
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    raise DeployError(
+        f"bundled package {PACKAGE_NAME} is missing; pass an explicit package path"
+    )
 
 
 def _run(args: argparse.Namespace, repository_root: Path) -> None:
@@ -219,7 +302,7 @@ def _run(args: argparse.Namespace, repository_root: Path) -> None:
         print("Rollback complete.")
         return
 
-    package = args.package or repository_root / "build/release" / PACKAGE_NAME
+    package = args.package or _default_package(repository_root)
     package = package.resolve()
     manifest = validate_package(package)
     if product["version"] != manifest["target_firmware"]:
@@ -228,8 +311,10 @@ def _run(args: argparse.Namespace, repository_root: Path) -> None:
             f"camera reports {product['version']}"
         )
     digest = _sha256(package)
-    size = package.stat().st_size
-    print(f"Package: {package} ({size} bytes, SHA-256 {digest})", flush=True)
+    print(
+        f"Package: {package} ({package.stat().st_size} bytes, SHA-256 {digest})",
+        flush=True,
+    )
     print(
         f"Payload files: {len(manifest['payload'])}; "
         "camera-vendor firmware files: none",
@@ -252,25 +337,44 @@ def _run(args: argparse.Namespace, repository_root: Path) -> None:
         raise DeployError(
             f"--host-address must be an IPv4 address: {host_address}"
         ) from error
-    url = f"http://{host_address}:{args.http_port}/calf-custom-fw.tar.gz"
-    server, thread = start_file_server(
-        package, args.http_port, url_path="/calf-custom-fw.tar.gz"
-    )
-    try:
-        print(f"Serving the verified package to the camera at {url}", flush=True)
-        with _connect(args) as session:
-            output, status = session.run_script(
-                install_script(url, size, digest), timeout=240.0
+    url = f"http://{host_address}:{args.http_port}/calf-custom-fw.tar"
+    with tempfile.TemporaryDirectory(prefix="calf-camera-package-") as name:
+        camera_package = Path(name) / "calf-custom-fw.tar"
+        materialize_camera_tar(package, camera_package)
+        camera_digest = _sha256(camera_package)
+        camera_md5 = _md5(camera_package)
+        camera_size = camera_package.stat().st_size
+        server, thread = start_file_server(
+            camera_package, args.http_port, url_path="/calf-custom-fw.tar"
+        )
+        try:
+            print(
+                "Serving the verified stock-compatible package to the camera "
+                f"at {url}",
+                flush=True,
             )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2.0)
+            with _connect(args) as session:
+                output, status = session.run_script(
+                    install_script(
+                        url,
+                        camera_size,
+                        camera_digest,
+                        camera_md5,
+                        str(manifest["payload"]["calf-sha256"]["sha256"]),
+                    ),
+                    timeout=240.0,
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2.0)
     if output.strip():
         print(output.strip())
     if status != 0:
         raise DeployError(
-            "Installation failed; the on-camera installer attempted stock rollback"
+            "Installation failed. Failures before activation leave stock untouched; "
+            "failures after activation trigger automatic stock rollback. Review the "
+            "camera output above for the exact stage."
         )
     print("Installation complete.")
 
@@ -295,9 +399,19 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="package tar.gz (default: build/release package)",
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="validate the embedded package and exit without contacting a camera",
+    )
     parser.add_argument("--rollback", action="store_true")
     parser.add_argument("--yes", action="store_true", help="skip the install confirmation")
     parser.add_argument("--username", default="root")
+    parser.add_argument(
+        "--ask-password",
+        action="store_true",
+        help="prompt for a non-empty Telnet password (stock default is empty)",
+    )
     parser.add_argument("--telnet-port", type=int, default=23)
     parser.add_argument("--http-port", type=int, default=8000)
     parser.add_argument("--host-address")
@@ -308,14 +422,30 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _parser()
     args = parser.parse_args(argv)
+    repository_root = Path(__file__).resolve().parents[2]
+    if args.verify:
+        try:
+            package = (args.package or _default_package(repository_root)).resolve()
+            manifest = validate_package(package)
+        except DeployError as error:
+            print(f"error: {error}", file=sys.stderr)
+            raise SystemExit(2) from error
+        print(
+            f"Embedded package verified: firmware {manifest['target_firmware']}, "
+            f"{len(manifest['payload'])} payload files, SHA-256 {_sha256(package)}"
+        )
+        return
     if not args.camera:
-        parser.error("camera is required")
+        if sys.stdin.isatty():
+            args.camera = input("Camera IP address: ").strip()
+        if not args.camera:
+            parser.error("camera is required")
     if not (1 <= args.telnet_port <= 65535 and 1 <= args.http_port <= 65535):
         parser.error("port numbers must be between 1 and 65535")
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     try:
-        _run(args, Path(__file__).resolve().parents[2])
+        _run(args, repository_root)
     except DeployError as error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2) from error

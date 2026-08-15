@@ -13,8 +13,11 @@ from .build_output import prepare_output
 from .capture import build_capture_request, build_capture_server
 from .ext4_read import dump_file
 from .firmware_archive import extract_app_image, extract_official_outer
+from .hash_helper import HASH_HELPER_NAME, build_hash_helper
 from .iq import IMX577_IQ_PATH, patch_imx577_min_fps
+from .model import FirmwareIdentity
 from .ngcd_builder import build_ngcd_binary
+from .nginx_config import NGINX_CONFIG_PATH, patch_download_location
 from .raw import build_raw_dng
 from .sensor_timing import build_sensor_timing
 from .target_spec import DEFAULT_TARGET, FirmwareTarget, package_name, resolve_target
@@ -32,6 +35,24 @@ _PAYLOAD_BUILDERS = {
     "calf-sensor-timing": build_sensor_timing,
     "calf-raw2dng": build_raw_dng,
     "calf-wlan": build_wifi_state_helper,
+}
+
+PAYLOAD_DESTINATIONS = {
+    "ngcd": "/app/bin/ngcd",
+    "ngui": "/app/bin/ngui",
+    **{
+        name: f"/app/bin/{name}"
+        for name in (
+            "calf-ngcd",
+            "calf-ui",
+            "calf-capture-server",
+            "calf-snapshot-request",
+            "calf-sensor-timing",
+            "calf-raw2dng",
+            "calf-wlan",
+            HASH_HELPER_NAME,
+        )
+    },
 }
 
 _LICENSE_FILES = {
@@ -65,17 +86,66 @@ def _stock_hashes(
     original_ngui = temporary / "stock-ngui"
     original_iq = temporary / "stock-imx577.json"
     patched_iq = temporary / "calf-imx577.json"
+    original_nginx = temporary / "stock-nginx.conf"
+    patched_nginx = temporary / "calf-nginx.conf"
     dump_file(app, "/bin/ngcd", original_ngcd)
     dump_file(app, "/bin/ngui", original_ngui)
     dump_file(app, IMX577_IQ_PATH, original_iq)
+    dump_file(app, NGINX_CONFIG_PATH, original_nginx)
     require_hash(original_ngcd, target.firmware.ngcd_sha256, "/bin/ngcd")
     require_hash(original_ngui, target.firmware.ngui_sha256, "/bin/ngui")
     patch_imx577_min_fps(original_iq, patched_iq)
+    nginx = patch_download_location(original_nginx, patched_nginx)
     return {
         "ngcd": target.accepted_ngcd_sha256,
         "ngui": target.accepted_ngui_sha256,
         "iq": (sha256(original_iq), sha256(patched_iq)),
+        "nginx": (nginx["stock_sha256"], nginx["installed_sha256"]),
     }
+
+
+def build_runtime_payload(
+    source: Path,
+    bin_root: Path,
+    *,
+    ui_source: Path,
+    ngcd_source: Path,
+    firmware: FirmwareIdentity,
+) -> dict[str, Path]:
+    """Build the complete CALF-authored runtime file set."""
+
+    bin_root.mkdir(parents=True, exist_ok=True)
+    build_ngcd_binary(
+        source,
+        bin_root / "calf-ngcd",
+        ngcd_source=ngcd_source,
+        build_time="reproducible-source-build",
+        firmware=firmware,
+    )
+    build_ui_binary(
+        source,
+        bin_root / "calf-ui",
+        ui_source=ui_source,
+        firmware=firmware,
+    )
+    with tempfile.TemporaryDirectory(prefix="calf-runtime-helpers-") as name:
+        helper_root = Path(name)
+        for filename, builder in _PAYLOAD_BUILDERS.items():
+            built_helper = helper_root / filename
+            builder(built_helper)
+            shutil.copyfile(built_helper, bin_root / filename)
+            (bin_root / filename).chmod(0o755)
+    build_hash_helper(bin_root / HASH_HELPER_NAME, ui_source=ui_source)
+    build_backend_selector(bin_root / "ngcd")
+    build_ui_selector(bin_root / "ngui")
+
+    payload = {path.name: path for path in sorted(bin_root.iterdir())}
+    if set(payload) != set(PAYLOAD_DESTINATIONS):
+        raise FirmwareToolError(
+            f"unexpected runtime payload: {sorted(payload)}, expected "
+            f"{sorted(PAYLOAD_DESTINATIONS)}"
+        )
+    return payload
 
 
 def _installer_script(
@@ -95,12 +165,12 @@ def _installer_script(
 
 set -u
 
-payload_hashes={_quoted_shell(payload_lines)}
-destinations={_quoted_shell(destination_lines)}
 allowed_ngcd={_quoted_shell(' '.join(stock_hashes['ngcd']))}
 allowed_ngui={_quoted_shell(' '.join(stock_hashes['ngui']))}
 stock_iq_sha256={_quoted_shell(stock_hashes['iq'][0])}
 calf_iq_sha256={_quoted_shell(stock_hashes['iq'][1])}
+stock_nginx_sha256={_quoted_shell(stock_hashes['nginx'][0])}
+calf_nginx_sha256={_quoted_shell(stock_hashes['nginx'][1])}
 required_kb={required_kb}
 stock_marker=/tmp/calf-ui-stock-session
 iq_current=/app/data/imx577_VIEWPT_VP415.json
@@ -108,12 +178,18 @@ iq_stock=/app/data/imx577_VIEWPT_VP415.json-calf-custom-fw-stock
 iq_stage=/app/data/.calf-custom-fw-imx577-$$
 iq_stock_stage=/app/data/.calf-custom-fw-stock-imx577-$$
 iq_stage_ready=0
+nginx_current=/app/nginx/conf/nginx.conf
+nginx_stock=/app/nginx/conf/nginx.conf-calf-custom-fw-stock
+nginx_stage=/app/nginx/conf/.calf-custom-fw-nginx-$$
+nginx_stock_stage=/app/nginx/conf/.calf-custom-fw-stock-nginx-$$
+nginx_stage_ready=0
 monitor_pid=
 monitor_paused=0
 transaction_started=0
 rollback_active=0
 local_manifest=/local/.calf-custom-fw-manifest.$$
 local_uninstall=/local/.calf-custom-fw-uninstall.$$
+hash_tool=/app/bin/calf-sha256
 
 fail()
 {{
@@ -131,7 +207,7 @@ fail()
 
 file_hash()
 {{
-    sha256sum "$1" 2>/dev/null | awk '{{print $1}}'
+    "$hash_tool" "$1" 2>/dev/null
 }}
 
 hash_allowed()
@@ -165,7 +241,17 @@ matching_children()
         [ -r "$proc/comm" ] || continue
         read -r name < "$proc/comm" || continue
         case "$name" in
-            ngcd|calf-ngcd|ngui|calf-ui) printf '%s\n' "${{proc##*/}}" ;;
+            ngcd|calf-ngcd|ngui|calf-ui)
+                state=
+                while read -r field value rest; do
+                    if [ "$field" = "State:" ]; then
+                        state=$value
+                        break
+                    fi
+                done < "$proc/status"
+                case "$state" in Z|X|x) continue ;; esac
+                printf '%s\n' "${{proc##*/}}"
+                ;;
         esac
     done
 }}
@@ -209,11 +295,12 @@ cleanup_temporary()
     while read -r name destination; do
         [ -n "$name" ] || continue
         rm -f "/app/bin/.calf-custom-fw-$name-$$"
-    done <<'CALF_PACKAGE_CLEANUP'
-$destinations
+done <<'CALF_PACKAGE_CLEANUP'
+{destination_lines}
 CALF_PACKAGE_CLEANUP
     rm -f "$local_manifest" "$local_uninstall"
     rm -f "$iq_stage" "$iq_stock_stage"
+    rm -f "$nginx_stage" "$nginx_stock_stage"
 }}
 
 exit_cleanup()
@@ -254,6 +341,37 @@ restore_stock_iq()
     }}
 }}
 
+restore_stock_nginx()
+{{
+    temporary=/app/nginx/conf/.calf-custom-fw-restore-nginx-$$
+    rm -f "$temporary"
+    ln "$nginx_stock" "$temporary" || return 1
+    mv -f "$temporary" "$nginx_current" || {{
+        rm -f "$temporary"
+        return 1
+    }}
+}}
+
+reload_nginx()
+{{
+    pidfile=/app/nginx/logs/nginx.pid
+    [ -r "$pidfile" ] || return 1
+    read -r nginx_pid < "$pidfile" || return 1
+    case "$nginx_pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$nginx_pid" -gt 1 ] 2>/dev/null || return 1
+    [ "$(readlink "/proc/$nginx_pid/exe" 2>/dev/null)" = /app/nginx/nginx ] ||
+        return 1
+    kill -HUP "$nginx_pid" || return 1
+    sleep 1
+    kill -0 "$nginx_pid" 2>/dev/null
+}}
+
+verify_download_route()
+{{
+    /usr/bin/curl -fsS --connect-timeout 2 --max-time 8 \
+        -o /dev/null http://127.0.0.1/download/
+}}
+
 rollback_to_stock()
 {{
     if [ "$monitor_paused" -ne 1 ]; then
@@ -266,6 +384,8 @@ rollback_to_stock()
     restore_stock_entry ngcd || return 1
     restore_stock_entry ngui || return 1
     restore_stock_iq || return 1
+    restore_stock_nginx || return 1
+    reload_nginx || return 1
     rm -f "$stock_marker"
     sync
     resume_monitor || return 1
@@ -284,28 +404,39 @@ uninstall_custom_firmware()
     rm -f /app/bin/calf-ngcd /app/bin/calf-ui \
         /app/bin/calf-capture-server /app/bin/calf-snapshot-request \
         /app/bin/calf-sensor-timing /app/bin/calf-raw2dng \
-        /app/bin/calf-wlan
+        /app/bin/calf-wlan /app/bin/calf-sha256
     rm -f /app/bin/ngcd-stock /app/bin/ngui-stock
     rm -f "$iq_stock"
+    rm -f "$nginx_stock"
     rm -f /local/calf-custom-fw-manifest.json /local/calf-custom-fw-uninstall
     sync
     echo "CALF custom firmware removed; the original backend and UI are active."
 }}
 
-if [ "${{1:-}}" = "--rollback" ]; then
-    uninstall_custom_firmware
-    exit 0
-fi
-[ "$#" -eq 0 ] || fail "usage: $0 [--rollback]"
+preflight_only=0
+case "${{1:-}}" in
+    --rollback)
+        uninstall_custom_firmware
+        exit 0
+        ;;
+    --preflight) preflight_only=1 ;;
+    '') ;;
+    *) fail "usage: $0 [--rollback]" ;;
+esac
 
 payload_root=$(dirname "$0")
 payload_root=$(cd "$payload_root" && pwd -P) || fail "cannot resolve package directory"
 [ -d "$payload_root/bin" ] || fail "package bin directory is missing"
-command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is unavailable"
+hash_tool=$payload_root/bin/calf-sha256
+[ -f "$hash_tool" ] && [ -x "$hash_tool" ] && [ ! -L "$hash_tool" ] ||
+    fail "package SHA-256 helper is missing or unsafe"
 command -v awk >/dev/null 2>&1 || fail "awk is unavailable"
 command -v sed >/dev/null 2>&1 || fail "sed is unavailable"
+[ -x /usr/bin/curl ] || fail "curl is unavailable"
 [ -d /app/bin ] && [ -w /app/bin ] || fail "/app/bin is not writable"
 [ -d /app/data ] && [ -w /app/data ] || fail "/app/data is not writable"
+[ -d /app/nginx/conf ] && [ -w /app/nginx/conf ] ||
+    fail "/app/nginx/conf is not writable"
 [ -d /local ] && [ -w /local ] || fail "/local is not writable"
 
 while read -r name expected; do
@@ -316,7 +447,7 @@ while read -r name expected; do
     actual=$(file_hash "$source_file") || fail "cannot hash payload file: $name"
     [ "$actual" = "$expected" ] || fail "payload hash mismatch: $name"
 done <<'CALF_PACKAGE_HASHES'
-$payload_hashes
+{payload_lines}
 CALF_PACKAGE_HASHES
 
 available_kb=$(df -Pk /app/bin 2>/dev/null | awk 'NR == 2 {{print $4}}')
@@ -329,6 +460,52 @@ for mounted in ngcd ngui; do
         fail "temporary bind mount exists at /app/bin/$mounted; reboot or roll it back first"
     fi
 done
+
+validate_stock_identity()
+{{
+    name=$1
+    allowed=$2
+    current=/app/bin/$name
+    stock=/app/bin/$name-stock
+    candidate=$current
+    [ ! -e "$stock" ] || candidate=$stock
+    [ -f "$candidate" ] && [ ! -L "$candidate" ] || return 1
+    digest=$(file_hash "$candidate") || return 1
+    hash_allowed "$digest" $allowed
+}}
+
+validate_stock_identity ngcd "$allowed_ngcd" ||
+    fail "backend is not a supported stock or prior installation"
+validate_stock_identity ngui "$allowed_ngui" ||
+    fail "UI is not a supported stock or prior installation"
+preflight_iq=$iq_current
+[ ! -e "$iq_stock" ] || preflight_iq=$iq_stock
+[ -f "$preflight_iq" ] && [ ! -L "$preflight_iq" ] ||
+    fail "sensor policy is missing or unsafe"
+preflight_iq_digest=$(file_hash "$preflight_iq") ||
+    fail "cannot hash the sensor policy"
+case "$preflight_iq_digest" in
+    "$stock_iq_sha256"|"$calf_iq_sha256") ;;
+    *) fail "sensor policy is not the supported stock/CALF version" ;;
+esac
+preflight_nginx=$nginx_current
+[ ! -e "$nginx_stock" ] || preflight_nginx=$nginx_stock
+[ -f "$preflight_nginx" ] && [ ! -L "$preflight_nginx" ] ||
+    fail "nginx configuration is missing or unsafe"
+preflight_nginx_digest=$(file_hash "$preflight_nginx") ||
+    fail "cannot hash the nginx configuration"
+[ "$preflight_nginx_digest" = "$stock_nginx_sha256" ] ||
+    fail "nginx configuration is not the supported stock version"
+current_nginx_digest=$(file_hash "$nginx_current") ||
+    fail "cannot hash the installed nginx configuration"
+case "$current_nginx_digest" in
+    "$stock_nginx_sha256"|"$calf_nginx_sha256") ;;
+    *) fail "installed nginx configuration is not supported" ;;
+esac
+if [ "$preflight_only" -eq 1 ]; then
+    echo "CALF installation preflight passed."
+    exit 0
+fi
 
 preserve_stock()
 {{
@@ -402,6 +579,65 @@ case "$current_iq_digest" in
     *) fail "sensor policy changed during installation" ;;
 esac
 
+write_nginx_variant()
+{{
+    source=$1
+    destination=$2
+    direction=$3
+    expected=$4
+    [ ! -e "$destination" ] || return 1
+    if [ "$direction" = install ]; then
+        sed -e 's@alias    /media/DCIM/;@alias    /mnt/mmcblk1p1/;@' \
+            -e 's@        #    autoindex on;@            autoindex on;@' \
+            "$source" > "$destination" || return 1
+    elif [ "$direction" = stock ]; then
+        sed -e 's@alias    /mnt/mmcblk1p1/;@alias    /media/DCIM/;@' \
+            -e 's@            autoindex on;@        #    autoindex on;@' \
+            "$source" > "$destination" || return 1
+    else
+        return 1
+    fi
+    digest=$(file_hash "$destination") || return 1
+    [ "$digest" = "$expected" ]
+}}
+
+if [ -e "$nginx_stock" ]; then
+    [ -f "$nginx_stock" ] && [ ! -L "$nginx_stock" ] ||
+        fail "preserved stock nginx configuration is unsafe"
+    [ "$(file_hash "$nginx_stock")" = "$stock_nginx_sha256" ] ||
+        fail "preserved stock nginx configuration has the wrong identity"
+elif [ "$current_nginx_digest" = "$stock_nginx_sha256" ]; then
+    ln "$nginx_current" "$nginx_stock" ||
+        fail "cannot preserve stock nginx configuration"
+    sync
+elif [ "$current_nginx_digest" = "$calf_nginx_sha256" ]; then
+    write_nginx_variant "$nginx_current" "$nginx_stock_stage" stock \
+        "$stock_nginx_sha256" ||
+        fail "cannot reconstruct the stock nginx configuration"
+    chmod 664 "$nginx_stock_stage" ||
+        fail "cannot chmod stock nginx configuration"
+    chown 1002:1002 "$nginx_stock_stage" ||
+        fail "cannot chown stock nginx configuration"
+    mv "$nginx_stock_stage" "$nginx_stock" ||
+        fail "cannot preserve reconstructed stock nginx configuration"
+    sync
+else
+    fail "nginx configuration changed during installation"
+fi
+
+case "$current_nginx_digest" in
+    "$stock_nginx_sha256")
+        write_nginx_variant "$nginx_current" "$nginx_stage" install \
+            "$calf_nginx_sha256" ||
+            fail "cannot stage the /download nginx configuration"
+        chmod 664 "$nginx_stage" || fail "cannot chmod nginx configuration"
+        chown 1002:1002 "$nginx_stage" || fail "cannot chown nginx configuration"
+        nginx_stage_ready=1
+        ;;
+    "$calf_nginx_sha256") ;;
+    *) fail "nginx configuration changed during installation" ;;
+esac
+
 staged=
 while read -r name destination; do
     [ -n "$name" ] || continue
@@ -412,7 +648,7 @@ while read -r name destination; do
     chown 1002:1002 "$stage" || fail "could not chown $name"
     staged="$staged $stage"
 done <<'CALF_PACKAGE_DESTINATIONS'
-$destinations
+{destination_lines}
 CALF_PACKAGE_DESTINATIONS
 
 [ ! -e "$local_manifest" ] || fail "local manifest staging path already exists"
@@ -434,12 +670,19 @@ if [ "$iq_stage_ready" -eq 1 ]; then
     mv "$iq_stage" "$iq_current" || fail "cannot publish the 2 fps sensor policy"
     iq_stage_ready=0
 fi
+if [ "$nginx_stage_ready" -eq 1 ]; then
+    mv "$nginx_stage" "$nginx_current" ||
+        fail "cannot publish the /download nginx configuration"
+    nginx_stage_ready=0
+    reload_nginx || fail "cannot reload nginx with the /download endpoint"
+fi
+verify_download_route || fail "the /download endpoint did not become available"
 while read -r name destination; do
     [ -n "$name" ] || continue
     stage=/app/bin/.calf-custom-fw-$name-$$
     mv -f "$stage" "$destination" || fail "commit failed while publishing $name"
 done <<'CALF_PACKAGE_COMMIT'
-$destinations
+{destination_lines}
 CALF_PACKAGE_COMMIT
 
 mv -f "$local_manifest" /local/calf-custom-fw-manifest.json || fail "cannot publish manifest"
@@ -534,54 +777,22 @@ def build_package(
         temporary = Path(name)
         package_root = temporary / PACKAGE_ROOT
         bin_root = package_root / "bin"
-        helper_root = temporary / "helpers"
-        bin_root.mkdir(parents=True)
-        helper_root.mkdir()
-
-        calf_ngcd = bin_root / "calf-ngcd"
-        calf_ui = bin_root / "calf-ui"
-        build_ngcd_binary(
+        runtime_files = build_runtime_payload(
             source,
-            calf_ngcd,
+            bin_root,
+            ui_source=ui_source,
             ngcd_source=ngcd_source,
-            build_time="reproducible-source-build",
             firmware=firmware,
         )
-        build_ui_binary(source, calf_ui, ui_source=ui_source, firmware=firmware)
-
-        for filename, builder in _PAYLOAD_BUILDERS.items():
-            built_helper = helper_root / filename
-            builder(built_helper)
-            shutil.copyfile(built_helper, bin_root / filename)
-            (bin_root / filename).chmod(0o755)
-        build_backend_selector(bin_root / "ngcd")
-        build_ui_selector(bin_root / "ngui")
-
-        destinations = {
-            "ngcd": "/app/bin/ngcd",
-            "ngui": "/app/bin/ngui",
-            **{
-                name: f"/app/bin/{name}"
-                for name in (
-                    "calf-ngcd",
-                    "calf-ui",
-                    "calf-capture-server",
-                    "calf-snapshot-request",
-                    "calf-sensor-timing",
-                    "calf-raw2dng",
-                    "calf-wlan",
-                )
-            },
-        }
         payload = {
-            path.name: {
-                "destination": destinations[path.name],
+            name: {
+                "destination": PAYLOAD_DESTINATIONS[name],
                 "sha256": sha256(path),
                 "size": path.stat().st_size,
             }
-            for path in sorted(bin_root.iterdir())
+            for name, path in runtime_files.items()
         }
-        expected_names = set(destinations)
+        expected_names = set(PAYLOAD_DESTINATIONS)
         if set(payload) != expected_names:
             raise FirmwareToolError(
                 f"unexpected package payload: {sorted(payload)}, "
@@ -609,14 +820,31 @@ def build_package(
                 "/app/data/imx577_VIEWPT_VP415.json-calf-custom-fw-stock": stocks[
                     "iq"
                 ][0],
+                "/app/nginx/conf/nginx.conf-calf-custom-fw-stock": stocks[
+                    "nginx"
+                ][0],
                 "vendor_libraries": "used in place and never included in this package",
             },
-            "on_camera_transform": {
-                "path": "/app/data/imx577_VIEWPT_VP415.json",
-                "stock_sha256": stocks["iq"][0],
-                "installed_sha256": stocks["iq"][1],
-                "change": "CISMinFps 5 to 2; generated locally and restored on rollback",
-            },
+            "on_camera_transforms": [
+                {
+                    "path": "/app/data/imx577_VIEWPT_VP415.json",
+                    "stock_sha256": stocks["iq"][0],
+                    "installed_sha256": stocks["iq"][1],
+                    "change": (
+                        "CISMinFps 5 to 2; generated locally and restored "
+                        "on rollback"
+                    ),
+                },
+                {
+                    "path": "/app/nginx/conf/nginx.conf",
+                    "stock_sha256": stocks["nginx"][0],
+                    "installed_sha256": stocks["nginx"][1],
+                    "change": (
+                        "serve /download/ from /mnt/mmcblk1p1/ with directory "
+                        "listing; generated locally and restored on rollback"
+                    ),
+                },
+            ],
             "installation": {
                 "supervisor": "/app/bin/ngmonitor",
                 "transaction": "stage, pause supervisor, atomically rename, verify, rollback on failure",

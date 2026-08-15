@@ -23,8 +23,12 @@ The package contains only CALF-built or CALF-authored runtime files:
   third-party notices.
 
 The UI sends snapshot requests directly to the CALF coordinator on localhost
-port 8990. Consequently the installer does not patch the installed nginx
-configuration, `camservice`, or any stock executable.
+port 8990. The installer does not patch `camservice` or any stock executable.
+It performs one exact, hash-checked nginx configuration transform on the
+camera: `/download/` is changed from the nonexistent `/media/DCIM/` path to the
+active SD-card root `/mnt/mmcblk1p1/`, and directory listing is enabled. The
+factory configuration is preserved and restored on rollback. Files under this
+route are unauthenticated while the camera is reachable over the network.
 
 Half-second exposure requires the installed IMX577 policy's minimum rate to be
 2 fps instead of the factory 5 fps. The installer performs that verified
@@ -32,6 +36,10 @@ one-byte transformation on the camera; the vendor JSON is never put in the
 package. It preserves the exact factory form as a hard link when starting from
 stock, or reconstructs it by reversing that same verified byte when starting
 from the known patched form. Rollback restores the factory hash.
+
+The nginx transform follows the same rule: only the exact supported 2.1.6
+configuration is accepted, the generated result must match its known hash,
+and rollback restores the preserved factory configuration.
 
 ## Build and inspect
 

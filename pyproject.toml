@@ -35,6 +35,9 @@ dev = [
   "reuse>=6.2",
   "ruff>=0.12",
 ]
+installer = [
+  "pyinstaller>=6.11",
+]
 
 [project.scripts]
 calf-fw = "calf_fw_tool.cli:main"
