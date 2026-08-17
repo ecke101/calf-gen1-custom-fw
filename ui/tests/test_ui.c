@@ -30,7 +30,7 @@ static void test_drive_mode_settings_and_capture_controls(void)
     calf_ui_t ui;
     calf_action_t action;
     calf_backend_status_t status = {
-        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0,
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "",
     };
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
@@ -182,7 +182,7 @@ static void test_night_preview_timing(void)
 static void test_drive_mode_row_layout_and_navigation(void)
 {
     calf_backend_status_t status = {
-        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0,
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "",
     };
     int index;
     for(index = 0; index < CALF_DRIVE_MODE_COUNT; ++index) {
@@ -274,7 +274,7 @@ static void test_exposure_is_confirmed_only_after_success(void)
 static void test_recording_blocks_lens_switch(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     calf_action_t action;
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -286,7 +286,7 @@ static void test_recording_blocks_lens_switch(void)
 static void test_live_and_playback_block_lens_switch(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 1, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 1, 0, 0, 0, ""};
     calf_action_t action;
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -305,7 +305,7 @@ static void test_live_and_playback_block_lens_switch(void)
 static void test_unknown_status_blocks_lens_switch(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {0, 0, 80, 1000, 50, 55, -1, -1, -1, 0};
+    calf_backend_status_t status = {0, 0, 80, 1000, 50, 55, -1, -1, -1, 0, ""};
     calf_action_t action;
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -317,7 +317,7 @@ static void test_unknown_status_blocks_lens_switch(void)
 static void test_status_changes_revision(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 72, 2048, 48, 52, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 72, 2048, 48, 52, 0, 0, 0, 0, ""};
     uint32_t revision;
     calf_ui_init(&ui);
     revision = ui.revision;
@@ -436,7 +436,7 @@ static void test_main_bottom_button_touch_areas(void)
 static void test_battery_charge_states_render(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 55, 2048, 48, 52, 0, 0, 1, 0};
+    calf_backend_status_t status = {1, 0, 55, 2048, 48, 52, 0, 0, 1, 0, ""};
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -798,7 +798,7 @@ static void test_main_zoom_toggles_operator_left_and_stereo_directly(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
     ui.lens_known = 1;
@@ -819,7 +819,7 @@ static void test_capture_mode_switch_is_transactional_and_interlocked(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
     (void)calf_ui_tap(&ui, 720, 420);
@@ -927,7 +927,7 @@ static void test_gallery_navigation_and_confirmed_delete(void)
 static void test_gallery_enter_reports_blocking_camera_state(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     calf_action_t action;
 
     calf_ui_init(&ui);
@@ -966,7 +966,7 @@ static void test_gallery_enter_reports_blocking_camera_state(void)
 static void test_recording_duration_updates_status_revision(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 1};
+    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 1, ""};
     uint32_t revision;
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1506,11 +1506,48 @@ static void test_wifi_power_toggle_is_confirmed_and_recoverable(void)
     assert(ui.wifi_enabled == 1);
 }
 
+static void test_usb_ethernet_modes_are_selectable(void)
+{
+    calf_ui_t ui;
+    calf_action_t action;
+    calf_backend_status_t status;
+    calf_ui_init(&ui);
+    ui.screen = CALF_SCREEN_SETTINGS_NETWORK;
+
+    status = ui.status;
+    strcpy(status.ethernet_ip_address, "192.168.50.24");
+    calf_ui_set_status(&ui, &status);
+    assert(calf_ui_tap(&ui, 100, 330).kind == CALF_ACTION_NONE);
+    assert(ui.screen == CALF_SCREEN_ETHERNET);
+    assert(strcmp(ui.status.ethernet_ip_address, "192.168.50.24") == 0);
+    assert(calf_ui_key_press(&ui, CALF_KEY_BACK).kind == CALF_ACTION_NONE);
+    assert(ui.screen == CALF_SCREEN_SETTINGS_NETWORK);
+
+    assert(calf_ui_tap(&ui, 600, 330).kind == CALF_ACTION_NONE);
+    assert(ui.screen == CALF_SCREEN_USB_ETHERNET);
+    action = calf_ui_tap(&ui, 600, 215);
+    assert(action.kind == CALF_ACTION_SET_USB_ETHERNET);
+    assert(action.selection == 3);
+    assert(strcmp(action.value, "win:USB2") == 0);
+    calf_ui_complete_action(&ui, action, 1,
+                            "USB NETWORK  192.168.2.101");
+    assert(ui.screen == CALF_SCREEN_SETTINGS_NETWORK);
+    assert(ui.usb_ethernet_known == 1 && ui.usb_ethernet_index == 3);
+
+    assert(calf_ui_tap(&ui, 600, 330).kind == CALF_ACTION_NONE);
+    action = calf_ui_tap(&ui, 100, 120);
+    assert(action.kind == CALF_ACTION_SET_USB_ETHERNET);
+    assert(action.selection == 0);
+    assert(strcmp(action.value, "off") == 0);
+    calf_ui_complete_action(&ui, action, 1, "USB NETWORK OFF");
+    assert(ui.usb_ethernet_index == 0);
+}
+
 static void test_stock_ui_switch_is_confirmed_and_interlocked(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1541,7 +1578,7 @@ static void test_resolution_and_encoder_settings_are_functional(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0};
+    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1756,6 +1793,7 @@ int main(void)
     test_wifi_scan_connect_and_password_entry();
     test_firmware_update_requires_check_and_confirmation();
     test_wifi_power_toggle_is_confirmed_and_recoverable();
+    test_usb_ethernet_modes_are_selectable();
     test_stock_ui_switch_is_confirmed_and_interlocked();
     test_resolution_and_encoder_settings_are_functional();
     test_language_menu_and_localization_boundary();

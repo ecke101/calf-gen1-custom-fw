@@ -151,6 +151,22 @@ http://CAMERA_IP/download/
 This route exposes the active SD-card filesystem without authentication. Use
 the camera only on a trusted network, and disable Wi-Fi when it is not needed.
 
+## USB networking
+
+Open **Settings > Network** on the camera to configure either kind of USB
+network connection:
+
+- **Ethernet** shows the live address of a USB-to-Ethernet adapter. Adapter
+  hotplug continues to use the camera's existing host-mode setup and DHCP.
+- **USB Direct** connects the camera directly to a computer. Select USB1 or
+  USB2 and choose Windows (RNDIS) or Mac/Linux (ECM). The camera uses
+  `192.168.2.101`; its DHCP server assigns the computer an address from
+  `192.168.2.201` through `192.168.2.210`.
+
+The adapter and direct-to-computer modes are independent and can run at the
+same time when they use different physical USB ports. A charge-only cable will
+not enumerate for USB Direct.
+
 See [docs/installation.md](docs/installation.md) for detailed package,
 transaction, fallback, and rollback behavior.
 

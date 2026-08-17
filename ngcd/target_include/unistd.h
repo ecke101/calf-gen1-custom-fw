@@ -17,6 +17,8 @@ extern int getpid(void);
 extern off_t lseek(int descriptor, off_t offset, int origin);
 extern ssize_t read(int descriptor, void *buffer, size_t size);
 extern ssize_t readlink(const char *path, char *buffer, size_t size);
+extern int rmdir(const char *path);
+extern int symlink(const char *target, const char *link_path);
 extern int unlink(const char *path);
 extern ssize_t write(int descriptor, const void *buffer, size_t size);
 extern void sync(void);

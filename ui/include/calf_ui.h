@@ -68,6 +68,8 @@ typedef enum {
     CALF_SCREEN_WIFI_LIST,
     CALF_SCREEN_WIFI_PASSWORD,
     CALF_SCREEN_WIFI_OFF_CONFIRM,
+    CALF_SCREEN_ETHERNET,
+    CALF_SCREEN_USB_ETHERNET,
     CALF_SCREEN_UPDATE_CONFIRM,
     CALF_SCREEN_STOCK_UI_CONFIRM,
     CALF_SCREEN_POWER_HISTORY,
@@ -125,6 +127,7 @@ typedef enum {
     CALF_ACTION_WIFI_CONNECT_SAVED,
     CALF_ACTION_WIFI_CONNECT_PASSWORD,
     CALF_ACTION_SET_WIFI_ENABLED,
+    CALF_ACTION_SET_USB_ETHERNET,
     CALF_ACTION_FIRMWARE_CHECK,
     CALF_ACTION_FIRMWARE_INSTALL,
     CALF_ACTION_LOAD_STOCK_UI,
@@ -172,6 +175,7 @@ typedef struct {
     int playback;
     int usb_power;
     int recording_seconds;
+    char ethernet_ip_address[16];
 } calf_backend_status_t;
 
 /* Battery current and power are positive while the battery supplies the
@@ -319,6 +323,8 @@ typedef struct {
     char wifi_password[CALF_WIFI_PASSWORD_CAPACITY];
     int wifi_enabled;
     int wifi_enabled_known;
+    int usb_ethernet_index;
+    int usb_ethernet_known;
     int update_size_mb;
     int update_ready;
     calf_power_sample_t power;

@@ -2573,6 +2573,21 @@ static int target_wifi_scan(struct ngcd_backend *backend,
     return ngcd_wifi_scan_results(networks, capacity, count);
 }
 
+static int target_usb_ethernet(struct ngcd_backend *backend, const char *port,
+                               const char *operating_system, bool enable)
+{
+    (void)backend;
+    return enable ? ngcd_usb_ethernet_set(port, operating_system)
+                  : ngcd_usb_ethernet_close();
+}
+
+static int target_ethernet_status(struct ngcd_backend *backend,
+                                  struct ngcd_ethernet_info *info)
+{
+    (void)backend;
+    return ngcd_ethernet_read_status(info);
+}
+
 static int target_power_status(struct ngcd_backend *backend,
                                struct ngcd_power_info *info)
 {
@@ -2615,6 +2630,8 @@ static const struct ngcd_backend_ops TARGET_OPS = {
     .storage_status = target_storage_status,
     .wifi_status = target_wifi_status,
     .wifi_scan = target_wifi_scan,
+    .usb_ethernet = target_usb_ethernet,
+    .ethernet_status = target_ethernet_status,
     .power_status = target_power_status,
     .system_action = target_system_action,
 };

@@ -99,6 +99,22 @@ static void test_wifi_parsers(void)
     assert(ngcd_wifi_parse_status("FAIL\n", 5, &info) != 0);
 }
 
+static void test_usb_ethernet_mapping(void)
+{
+    char loopback[16];
+    assert(strcmp(ngcd_usb_ethernet_udc("USB1"), "fc000000.usb") == 0);
+    assert(strcmp(ngcd_usb_ethernet_udc("usb2"), "fc400000.usb") == 0);
+    assert(ngcd_usb_ethernet_udc("USB3") == NULL);
+    assert(strcmp(ngcd_usb_ethernet_function("win"), "rndis.usb0") == 0);
+    assert(strcmp(ngcd_usb_ethernet_function("MAC"), "ecm.usb0") == 0);
+    assert(ngcd_usb_ethernet_function("linux") == NULL);
+    assert(ngcd_network_interface_ipv4("lo", loopback,
+                                       sizeof(loopback)) == 0);
+    assert(strcmp(loopback, "127.0.0.1") == 0);
+    assert(ngcd_network_interface_ipv4("not-an-interface", loopback,
+                                       sizeof(loopback)) != 0);
+}
+
 static void test_power_parser(void)
 {
     int value = -1;
@@ -1273,6 +1289,27 @@ static void test_contract(void)
     assert(strstr(response.body, "\"essid\":\"CALF-MOCK\"") != NULL);
     assert(strstr(response.body, "Lab \\\"Guest\\\"") != NULL);
     response = dispatch(&app, NGCD_METHOD_POST,
+                        "/camera/v2/wifi", NULL,
+                        "{\"action\":\"setusbdc\","
+                        "\"usb_port_name\":\"USB1\",\"os\":\"win\"}");
+    assert(response.status == 200);
+    assert(strstr(response.body, "\"code\":0") != NULL);
+    response = dispatch(&app, NGCD_METHOD_POST,
+                        "/camera/v2/wifi", NULL,
+                        "{\"action\":\"setusbdc\","
+                        "\"usb_port_name\":\"USB3\",\"os\":\"win\"}");
+    assert(response.status == 400);
+    response = dispatch(&app, NGCD_METHOD_POST,
+                        "/camera/v2/wifi", NULL,
+                        "{\"action\":\"setusbdc\","
+                        "\"usb_port_name\":\"USB1\"}");
+    assert(response.status == 400);
+    response = dispatch(&app, NGCD_METHOD_POST,
+                        "/camera/v2/wifi", NULL,
+                        "{\"action\":\"closeusbdc\"}");
+    assert(response.status == 200);
+    assert(strstr(response.body, "\"code\":0") != NULL);
+    response = dispatch(&app, NGCD_METHOD_POST,
                         "/camera/v2/systemstatus", NULL, "{\"ssids\":1}");
     assert(response.status == 200);
     assert(strstr(response.body, "\"ipaddr\":\"192.168.1.2\"") != NULL);
@@ -1280,9 +1317,15 @@ static void test_contract(void)
     assert(strstr(response.body, "\"batt_cap\":75") != NULL);
     assert(strstr(response.body, "\"sys_temp\":42") != NULL);
     assert(strstr(response.body, "\"core_temp\":48") != NULL);
+    assert(strstr(response.body,
+                  "\"eth0\":{\"ipaddr\":\"10.20.30.40\"}") != NULL);
     assert(strstr(response.body, "\"stor_loc\":\"/mnt/mmcblk1p1\"") != NULL);
     assert(strstr(response.body, "\"total_mb\":262144") != NULL);
     assert(strstr(response.body, "\"free_mb\":131072") != NULL);
+    response = dispatch(&app, NGCD_METHOD_GET,
+                        "/camera/v2/ethaddr", NULL, NULL);
+    assert(response.status == 200);
+    assert(strstr(response.body, "\"ipaddr\":\"10.20.30.40\"") != NULL);
 
     response = dispatch(&app, NGCD_METHOD_POST,
                         "/camera/v2/mediastor", NULL,
@@ -1407,6 +1450,7 @@ int main(void)
 {
     test_json();
     test_wifi_parsers();
+    test_usb_ethernet_mapping();
     test_power_parser();
     test_stock_session_marker();
     test_storage_mount_parser();

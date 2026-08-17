@@ -746,6 +746,7 @@ static int system_status(struct ngcd_app *app,
     struct ngcd_power_info power = {-1, 0, 0, 0};
     struct ngcd_imu_sample motion;
     struct ngcd_storage_info storage;
+    struct ngcd_ethernet_info ethernet;
     char ip_address[128], mac_address[64], ssid[NGCD_WIFI_SSID_MAX * 2U];
     char storage_location[NGCD_PATH_MAX];
     uint64_t storage_total_mb = 0;
@@ -763,6 +764,9 @@ static int system_status(struct ngcd_app *app,
     }
     memset(&motion, 0, sizeof(motion));
     (void)app->backend.ops->read_imu(&app->backend, &motion);
+    memset(&ethernet, 0, sizeof(ethernet));
+    if (app->backend.ops->ethernet_status(&app->backend, &ethernet) != 0)
+        memcpy(ethernet.ip_address, "0.0.0.0", sizeof("0.0.0.0"));
     if (ngcd_json_escape(ip_address, sizeof(ip_address), wifi.ip_address) < 0 ||
         ngcd_json_escape(mac_address, sizeof(mac_address), wifi.mac_address) < 0 ||
         ngcd_json_escape(ssid, sizeof(ssid), wifi.ssid) < 0 ||
@@ -779,7 +783,7 @@ static int system_status(struct ngcd_app *app,
         "\"is_usb_supply\":%d,\"batt_cap\":%d,\"ain_src\":%d,"
         "\"sys_temp\":%d,\"core_temp\":%d,"
         "\"ls\":{\"duration\":%d,\"video_bps\":%d},"
-        "\"eth0\":{\"ipaddr\":\"0.0.0.0\"},\"gyro_x\":%d,\"gyro_y\":%d}}",
+        "\"eth0\":{\"ipaddr\":\"%s\"},\"gyro_x\":%d,\"gyro_y\":%d}}",
         ip_address, mac_address, ssid, wifi.quality, wifi.level,
         state->recording ? 1 : 0,
         (unsigned long long)recording_duration_seconds(state),
@@ -789,7 +793,18 @@ static int system_status(struct ngcd_app *app,
         power.usb_supply, power.battery_percent,
         state->audio_input, power.system_temperature, power.core_temperature,
         state->live ? 1 : 0, state->live ? 1 : 0,
-        motion.gyro_x, motion.gyro_y);
+        ethernet.ip_address, motion.gyro_x, motion.gyro_y);
+}
+
+static int ethernet_status(struct ngcd_app *app,
+                           struct ngcd_response *response)
+{
+    struct ngcd_ethernet_info info;
+    if (app->backend.ops->ethernet_status(&app->backend, &info) != 0)
+        return error_response(response, 200, "failed to get Ethernet status");
+    return response_format(response, 200,
+                           "{\"code\":0,\"body\":{\"ipaddr\":\"%s\"}}",
+                           info.ip_address);
 }
 
 static int wifi_status(struct ngcd_app *app, struct ngcd_response *response)
@@ -807,6 +822,37 @@ static int wifi_status(struct ngcd_app *app, struct ngcd_response *response)
         "{\"code\":0,\"body\":{\"ipaddr\":\"%s\",\"mac\":\"%s\","
         "\"essid\":\"%s\",\"qual\":%d,\"level\":%d}}",
         ip_address, mac_address, ssid, info.quality, info.level);
+}
+
+static int set_usb_ethernet(struct ngcd_app *app,
+                            const struct ngcd_request *request,
+                            struct ngcd_response *response)
+{
+    char action[32];
+    char port[16];
+    char operating_system[16];
+    int result;
+    if (body_string(request, "action", action, sizeof(action), true) < 0)
+        return error_response(response, 400, "invalid USB Ethernet request");
+    if (strcmp(action, "closeusbdc") == 0)
+        result = app->backend.ops->usb_ethernet(
+            &app->backend, NULL, NULL, false);
+    else if (strcmp(action, "setusbdc") == 0) {
+        if (body_string(request, "usb_port_name", port, sizeof(port), true) < 0 ||
+            body_string(request, "os", operating_system,
+                        sizeof(operating_system), true) < 0 ||
+            ngcd_usb_ethernet_udc(port) == NULL ||
+            ngcd_usb_ethernet_function(operating_system) == NULL)
+            return error_response(response, 400,
+                                  "invalid USB Ethernet parameters");
+        result = app->backend.ops->usb_ethernet(
+            &app->backend, port, operating_system, true);
+    }
+    else
+        return error_response(response, 400, "invalid USB Ethernet action");
+    return result == 0 ? success(response)
+                       : error_response(response, 200,
+                                        "USB Ethernet command failed");
 }
 
 static int wifi_scan(struct ngcd_app *app, struct ngcd_response *response)
@@ -1052,12 +1098,16 @@ int ngcd_dispatch(struct ngcd_app *app, const struct ngcd_request *request,
         if (request->method == NGCD_METHOD_GET)
             return wifi_status(app, response);
         if (request->method == NGCD_METHOD_POST)
-            return unsupported(response);
+            return set_usb_ethernet(app, request, response);
         return error_response(response, 405, "method not allowed");
     }
     if (strcmp(route, "scanwifi") == 0) {
         if (require_method(request, response, NGCD_METHOD_GET) != 0) return 0;
         return wifi_scan(app, response);
+    }
+    if (strcmp(route, "ethaddr") == 0) {
+        if (require_method(request, response, NGCD_METHOD_GET) != 0) return 0;
+        return ethernet_status(app, response);
     }
     if (strcmp(route, "mediastor") == 0) {
         if (require_method(request, response, NGCD_METHOD_POST) != 0) return 0;
@@ -1088,7 +1138,7 @@ int ngcd_dispatch(struct ngcd_app *app, const struct ngcd_request *request,
     }
 
     if (strcmp(route, "defcalib") == 0 || strcmp(route, "dumpimage") == 0 ||
-        strcmp(route, "dumpyuv") == 0 || strcmp(route, "ethaddr") == 0 ||
+        strcmp(route, "dumpyuv") == 0 ||
         strcmp(route, "hdmictrl") == 0 || strcmp(route, "net") == 0 ||
         strcmp(route, "osd") == 0 || strcmp(route, "pencattr") == 0 ||
         strcmp(route, "romparams") == 0 ||

@@ -1976,6 +1976,24 @@ static int api_perform_action(calf_action_t action)
         buffer_append(body, sizeof(body), &used, "}");
         fixed_body = body;
     }
+    else if(action.kind == CALF_ACTION_SET_USB_ETHERNET) {
+        path = "/camera/v2/wifi";
+        if(string_equal(action.value, "off"))
+            fixed_body = "{\"action\":\"closeusbdc\"}";
+        else if(string_equal(action.value, "win:USB1"))
+            fixed_body = "{\"action\":\"setusbdc\","
+                         "\"usb_port_name\":\"USB1\",\"os\":\"win\"}";
+        else if(string_equal(action.value, "mac:USB1"))
+            fixed_body = "{\"action\":\"setusbdc\","
+                         "\"usb_port_name\":\"USB1\",\"os\":\"mac\"}";
+        else if(string_equal(action.value, "win:USB2"))
+            fixed_body = "{\"action\":\"setusbdc\","
+                         "\"usb_port_name\":\"USB2\",\"os\":\"win\"}";
+        else if(string_equal(action.value, "mac:USB2"))
+            fixed_body = "{\"action\":\"setusbdc\","
+                         "\"usb_port_name\":\"USB2\",\"os\":\"mac\"}";
+        else return -1;
+    }
     else if(action.kind == CALF_ACTION_FIRMWARE_INSTALL) {
         path = "/camera/v2/upgrade";
         fixed_body = "{\"action\":\"upgrade_from_sdcard\"}";
@@ -2393,7 +2411,7 @@ static int api_poll_status(calf_backend_status_t *status)
     int value;
     const char *recording_section;
     const char *live_section;
-    if(http_request("POST", "/camera/v2/systemstatus", "{\"ssids\":302}",
+    if(http_request("POST", "/camera/v2/systemstatus", "{\"ssids\":4398}",
                     response, sizeof(response)) != 0 || !response_code_ok(response)) {
         status->online = 0;
         return -1;
@@ -2409,6 +2427,16 @@ static int api_poll_status(calf_backend_status_t *status)
         status->system_temp = value;
     if(parse_integer_after(response, "\"core_temp\"", &value) == 0)
         status->core_temp = value;
+    string_copy(status->ethernet_ip_address,
+                sizeof(status->ethernet_ip_address), "0.0.0.0");
+    {
+        const char *ethernet_section = find_text(response, "\"eth0\"");
+        if(ethernet_section != (const char *)0)
+            (void)parse_scalar_after(
+                ethernet_section, "\"ipaddr\"",
+                status->ethernet_ip_address,
+                sizeof(status->ethernet_ip_address));
+    }
     recording_section = find_text(response, "\"rs\"");
     if(recording_section != (const char *)0 &&
        parse_integer_after(recording_section, "\"is_running\"", &value) == 0)
@@ -3086,6 +3114,8 @@ static const char *success_message(calf_action_kind_t kind)
        kind == CALF_ACTION_WIFI_CONNECT_PASSWORD) return "WI-FI CONNECTED";
     if(kind == CALF_ACTION_SET_WIFI_ENABLED)
         return "WI-FI POWER UPDATED";
+    if(kind == CALF_ACTION_SET_USB_ETHERNET)
+        return "USB NETWORK  192.168.2.101";
     if(kind == CALF_ACTION_FIRMWARE_CHECK) return "";
     if(kind == CALF_ACTION_FIRMWARE_INSTALL) return "REBOOTING TO UPDATE";
     if(kind == CALF_ACTION_LOAD_STOCK_UI) return "LOADING STOCK UI";

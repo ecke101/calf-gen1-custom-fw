@@ -26,7 +26,7 @@ SOURCES = src/app.c src/api.c src/audio.c src/aac.c src/aac_decoder.c src/backli
 	src/rockchip_display.c src/rockchip_encoder.c src/rockchip_image.c src/mp4.c \
 	src/mp4_reader.c src/rockchip_audio.c src/rockchip_playback.c \
 	src/rockchip_target.c src/imu.c \
-	src/storage.c src/wifi.c $(AAC_SOURCES)
+	src/storage.c src/wifi.c src/ethernet.c src/usb_ethernet.c $(AAC_SOURCES)
 LDLIBS ?= -ldl -pthread -lm
 SANITIZE_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 AAC_SANITIZE_DIR = $(BUILD_DIR)/vo-aacenc-sanitize

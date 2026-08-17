@@ -58,6 +58,7 @@ extern const choice_t k_auto_time_values[2];
 extern const choice_t k_display_off_values[8];
 extern const choice_t k_languages[CALF_LANGUAGE_COUNT];
 extern const choice_t k_indicator_led_values[2];
+extern const choice_t k_usb_ethernet_values[5];
 extern const nav_choice_t k_settings_categories[10];
 extern const char *const k_camera_setting_labels[4];
 extern const char *const k_image_setting_labels[9];

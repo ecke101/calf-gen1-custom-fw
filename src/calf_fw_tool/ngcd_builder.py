@@ -55,6 +55,8 @@ def build_ngcd_binary(
             "imu.c",
             "storage.c",
             "wifi.c",
+            "ethernet.c",
+            "usb_ethernet.c",
             "main.c",
             "target_start.c",
         )

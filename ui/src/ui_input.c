@@ -219,6 +219,10 @@ static calf_screen_t parent_screen(calf_screen_t screen)
         return CALF_SCREEN_WIFI_LIST;
     if(screen == CALF_SCREEN_WIFI_OFF_CONFIRM)
         return CALF_SCREEN_SETTINGS_NETWORK;
+    if(screen == CALF_SCREEN_ETHERNET)
+        return CALF_SCREEN_SETTINGS_NETWORK;
+    if(screen == CALF_SCREEN_USB_ETHERNET)
+        return CALF_SCREEN_SETTINGS_NETWORK;
     if(screen == CALF_SCREEN_UPDATE_CONFIRM)
         return CALF_SCREEN_SETTINGS_GENERAL;
     if(screen == CALF_SCREEN_STOCK_UI_CONFIRM)
@@ -311,6 +315,10 @@ static int screen_grid(const calf_ui_t *ui, calf_screen_t screen,
     }
     else if(screen == CALF_SCREEN_SETTINGS_GENERAL) {
         *count = (int)ARRAY_SIZE(k_general_setting_labels); *columns = 2;
+        *top = 80; *height = 82;
+    }
+    else if(screen == CALF_SCREEN_USB_ETHERNET) {
+        *count = (int)ARRAY_SIZE(k_usb_ethernet_values); *columns = 2;
         *top = 80; *height = 82;
     }
     else if(screen == CALF_SCREEN_WHITE_BALANCE) {
@@ -455,6 +463,8 @@ static int selected_focus_index(const calf_ui_t *ui)
         return ui->timezone_index;
     if(ui->screen == CALF_SCREEN_AUTO_TIME && ui->auto_time_known)
         return ui->auto_time_index;
+    if(ui->screen == CALF_SCREEN_USB_ETHERNET && ui->usb_ethernet_known)
+        return ui->usb_ethernet_index;
     if(ui->screen == CALF_SCREEN_CAPTURE_MODE)
         return (int)ui->capture_mode;
     if(ui->screen == CALF_SCREEN_CAMERA_RESOLUTION && ui->resolution_known)
@@ -1438,7 +1448,21 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
             }
             return begin_action(ui, CALF_ACTION_SET_WIFI_ENABLED, "1", 1);
         }
-        if(y >= 80) calf_ui_notice(ui, "COMING NEXT", 0);
+        if(contains(grid_cell(2, 2, 112, 142), x, y)) {
+            change_screen(ui, CALF_SCREEN_ETHERNET);
+            return no_action();
+        }
+        if(contains(grid_cell(3, 2, 112, 142), x, y)) {
+            change_screen(ui, CALF_SCREEN_USB_ETHERNET);
+            return no_action();
+        }
+    }
+    else if(ui->screen == CALF_SCREEN_USB_ETHERNET) {
+        for(i = 0; i < (int)ARRAY_SIZE(k_usb_ethernet_values); ++i) {
+            if(contains(grid_cell(i, 2, 80, 82), x, y))
+                return begin_action(ui, CALF_ACTION_SET_USB_ETHERNET,
+                                    k_usb_ethernet_values[i].value, i);
+        }
     }
     else if(ui->screen == CALF_SCREEN_SETTINGS_GENERAL) {
         if(contains(grid_cell(0, 2, 80, 82), x, y)) {

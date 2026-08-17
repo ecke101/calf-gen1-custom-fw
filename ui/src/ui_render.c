@@ -1454,6 +1454,26 @@ static void draw_wifi_list(const calf_ui_t *ui, uint32_t *pixels, int stride)
         draw_focus_frame(pixels, stride, (rect_t){270, 414, 260, 54});
 }
 
+static void draw_ethernet(const calf_ui_t *ui, uint32_t *pixels, int stride)
+{
+    int connected = ui->status.ethernet_ip_address[0] != '\0' &&
+                    !text_equal(ui->status.ethernet_ip_address, "0.0.0.0");
+    fill_rect(pixels, stride, (rect_t){0, 0, 800, 480}, 0xf00c1116u);
+    draw_top_bar(ui, pixels, stride, "USB ETHERNET ADAPTER", 1);
+    draw_text_centered(pixels, stride, (rect_t){40, 108, 720, 52},
+                       connected ? "CONNECTED" : "NOT CONNECTED", 4,
+                       connected ? 0xff55e6b5u : 0xffffd166u);
+    draw_text_centered(
+        pixels, stride, (rect_t){80, 180, 640, 72},
+        connected ? ui->status.ethernet_ip_address
+                  : "CONNECT AN ADAPTER TO USB1 OR USB2",
+        connected ? 5 : 3, 0xffffffffu);
+    draw_text_centered(pixels, stride, (rect_t){80, 278, 640, 40},
+                       "WIRED ADDRESS FROM DHCP", 2, 0xffbfcbd5u);
+    draw_text_centered(pixels, stride, (rect_t){80, 326, 640, 40},
+                       "UPDATES AUTOMATICALLY", 2, 0xffbfcbd5u);
+}
+
 static void draw_wifi_password(const calf_ui_t *ui, uint32_t *pixels,
                                int stride)
 {
@@ -1695,6 +1715,12 @@ void calf_ui_render(const calf_ui_t *ui, uint32_t *argb, int stride_pixels)
                          (int)ARRAY_SIZE(k_auto_time_values),
                          ui->auto_time_known ? ui->auto_time_index : -1,
                          2, 126, 218, "AUTO SET");
+    else if(ui->screen == CALF_SCREEN_USB_ETHERNET)
+        draw_choice_grid(ui, argb, stride_pixels, k_usb_ethernet_values,
+                         (int)ARRAY_SIZE(k_usb_ethernet_values),
+                         ui->usb_ethernet_known
+                             ? ui->usb_ethernet_index : -1,
+                         2, 80, 82, "USB ETHERNET  192.168.2.101");
     else if(ui->screen == CALF_SCREEN_CAPTURE_MODE)
         draw_choice_grid(ui, argb, stride_pixels, k_capture_modes,
                          (int)ARRAY_SIZE(k_capture_modes),
@@ -1775,6 +1801,8 @@ void calf_ui_render(const calf_ui_t *ui, uint32_t *argb, int stride_pixels)
         draw_wifi_password(ui, argb, stride_pixels);
     else if(ui->screen == CALF_SCREEN_WIFI_OFF_CONFIRM)
         draw_wifi_off_confirm(ui, argb, stride_pixels);
+    else if(ui->screen == CALF_SCREEN_ETHERNET)
+        draw_ethernet(ui, argb, stride_pixels);
     else if(ui->screen == CALF_SCREEN_UPDATE_CONFIRM)
         draw_update_confirm(ui, argb, stride_pixels);
     else if(ui->screen == CALF_SCREEN_STOCK_UI_CONFIRM)

@@ -436,7 +436,9 @@ int main(int argc, char **argv)
     SDL_Texture *overlay_texture;
     static uint32_t preview[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     static uint32_t overlay[CALF_UI_WIDTH * CALF_UI_HEIGHT];
-    calf_backend_status_t status = {1, 0, 82, 64321, 47, 53, 0, 0, 0, 0};
+    calf_backend_status_t status = {
+        1, 0, 82, 64321, 47, 53, 0, 0, 0, 0, "192.168.50.24"
+    };
     calf_ui_t ui;
     uint32_t rendered_revision = 0;
     uint32_t next_status_tick;

@@ -411,6 +411,25 @@ static int mock_wifi_scan(struct ngcd_backend *backend,
     return 0;
 }
 
+static int mock_usb_ethernet(struct ngcd_backend *backend, const char *port,
+                             const char *operating_system, bool enable)
+{
+    (void)backend;
+    if (!enable)
+        return 0;
+    return ngcd_usb_ethernet_udc(port) != NULL &&
+           ngcd_usb_ethernet_function(operating_system) != NULL ? 0 : -1;
+}
+
+static int mock_ethernet_status(struct ngcd_backend *backend,
+                                struct ngcd_ethernet_info *info)
+{
+    (void)backend;
+    memset(info, 0, sizeof(*info));
+    memcpy(info->ip_address, "10.20.30.40", sizeof("10.20.30.40"));
+    return 0;
+}
+
 static int mock_power_status(struct ngcd_backend *backend,
                              struct ngcd_power_info *info)
 {
@@ -456,6 +475,8 @@ static const struct ngcd_backend_ops MOCK_OPS = {
     .storage_status = mock_storage_status,
     .wifi_status = mock_wifi_status,
     .wifi_scan = mock_wifi_scan,
+    .usb_ethernet = mock_usb_ethernet,
+    .ethernet_status = mock_ethernet_status,
     .power_status = mock_power_status,
     .system_action = mock_system_action,
 };

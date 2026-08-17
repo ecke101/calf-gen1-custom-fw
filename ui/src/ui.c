@@ -412,6 +412,13 @@ const char *const k_live_setting_labels[] = {
 const char *const k_network_setting_labels[] = {
     "NETWORKS", "WI-FI POWER", "ETHERNET", "USB DIRECT",
 };
+const choice_t k_usb_ethernet_values[] = {
+    {"OFF", "off"},
+    {"WINDOWS USB1", "win:USB1"},
+    {"MAC USB1", "mac:USB1"},
+    {"WINDOWS USB2", "win:USB2"},
+    {"MAC USB2", "mac:USB2"},
+};
 const char *const k_audio_setting_labels[] = {
     "INPUT", "BUILTIN MIC", "LINE IN", "USB MIC", "SPEAKER",
 };
@@ -910,6 +917,10 @@ void calf_ui_complete_action(calf_ui_t *ui, calf_action_t action, int success,
                 ui->wifi_network_count = 0;
             }
         }
+        else if(action.kind == CALF_ACTION_SET_USB_ETHERNET) {
+            ui->usb_ethernet_index = action.selection;
+            ui->usb_ethernet_known = 1;
+        }
         else if(action.kind == CALF_ACTION_SET_CAPTURE_MODE) {
             ui->capture_mode = (calf_capture_mode_t)action.selection;
             ui->resolution_known = 0;
@@ -1015,7 +1026,8 @@ void calf_ui_complete_action(calf_ui_t *ui, calf_action_t action, int success,
                 action.kind == CALF_ACTION_WIFI_CONNECT_SAVED ||
                 action.kind == CALF_ACTION_WIFI_CONNECT_PASSWORD)
             ui->screen = CALF_SCREEN_WIFI_LIST;
-        else if(action.kind == CALF_ACTION_SET_WIFI_ENABLED)
+        else if(action.kind == CALF_ACTION_SET_WIFI_ENABLED ||
+                action.kind == CALF_ACTION_SET_USB_ETHERNET)
             ui->screen = CALF_SCREEN_SETTINGS_NETWORK;
         else if(action.kind == CALF_ACTION_FIRMWARE_CHECK)
             ui->screen = CALF_SCREEN_UPDATE_CONFIRM;
@@ -1044,7 +1056,9 @@ void calf_ui_set_status(calf_ui_t *ui, const calf_backend_status_t *status)
        ui->status.core_temp != status->core_temp ||
        ui->status.streaming != status->streaming ||
        ui->status.playback != status->playback ||
-       ui->status.usb_power != status->usb_power) {
+       ui->status.usb_power != status->usb_power ||
+       !text_equal(ui->status.ethernet_ip_address,
+                   status->ethernet_ip_address)) {
         ui->status = *status;
         ++ui->revision;
     }
