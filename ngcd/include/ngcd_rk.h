@@ -525,6 +525,9 @@ int ngcd_rk_graph_record_camm_gyro(
     float x_radians_per_second, float y_radians_per_second,
     float z_radians_per_second);
 int ngcd_rk_graph_set_audio_input(struct ngcd_rk_graph *graph, int input);
+int ngcd_rk_graph_histogram(
+    struct ngcd_rk_graph *graph,
+    uint32_t bins[NGCD_HISTOGRAM_BINS]);
 
 int ngcd_rk_encoder_attributes(
     const struct ngcd_encoder_state *encoder,

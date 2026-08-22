@@ -3,14 +3,18 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_left_right_names_use_operator_lcd_viewpoint() -> None:
+def test_raw_left_right_names_use_operator_lcd_viewpoint() -> None:
     model = (REPOSITORY_ROOT / "ui/src/ui.c").read_text(encoding="utf-8")
+    input_model = (REPOSITORY_ROOT / "ui/src/ui_input.c").read_text(
+        encoding="utf-8"
+    )
     capture = (REPOSITORY_ROOT / "src/calf_fw_tool/capture.py").read_text(
         encoding="utf-8"
     )
 
-    assert '{"LEFT", "SENSOR0_4K"}' in model
-    assert '{"RIGHT", "SENSOR1_4K"}' in model
+    assert "SENSOR0_4K" not in model
+    assert "SENSOR1_4K" not in model
+    assert '"ZOOM"' not in input_model
     assert '"$raw_converter" "$raw_new_c0"/frame*_normal.raw' in capture
     assert '"$raw_left_temp"' in capture
     assert '"$raw_converter" "$raw_new_c1"/frame*_normal.raw' in capture

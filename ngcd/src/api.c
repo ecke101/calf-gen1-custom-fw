@@ -747,7 +747,9 @@ static int system_status(struct ngcd_app *app,
     struct ngcd_imu_sample motion;
     struct ngcd_storage_info storage;
     struct ngcd_ethernet_info ethernet;
+    struct ngcd_usb_ethernet_info usb_ethernet;
     char ip_address[128], mac_address[64], ssid[NGCD_WIFI_SSID_MAX * 2U];
+    char usb_port[16], usb_os[16], usb_ip_address[32];
     char storage_location[NGCD_PATH_MAX];
     uint64_t storage_total_mb = 0;
     uint64_t storage_free_mb = 0;
@@ -767,9 +769,19 @@ static int system_status(struct ngcd_app *app,
     memset(&ethernet, 0, sizeof(ethernet));
     if (app->backend.ops->ethernet_status(&app->backend, &ethernet) != 0)
         memcpy(ethernet.ip_address, "0.0.0.0", sizeof("0.0.0.0"));
+    memset(&usb_ethernet, 0, sizeof(usb_ethernet));
+    if (app->backend.ops->usb_ethernet_status == NULL ||
+        app->backend.ops->usb_ethernet_status(&app->backend,
+                                              &usb_ethernet) != 0)
+        memcpy(usb_ethernet.ip_address, "0.0.0.0", sizeof("0.0.0.0"));
     if (ngcd_json_escape(ip_address, sizeof(ip_address), wifi.ip_address) < 0 ||
         ngcd_json_escape(mac_address, sizeof(mac_address), wifi.mac_address) < 0 ||
         ngcd_json_escape(ssid, sizeof(ssid), wifi.ssid) < 0 ||
+        ngcd_json_escape(usb_port, sizeof(usb_port), usb_ethernet.port) < 0 ||
+        ngcd_json_escape(usb_os, sizeof(usb_os),
+                         usb_ethernet.operating_system) < 0 ||
+        ngcd_json_escape(usb_ip_address, sizeof(usb_ip_address),
+                         usb_ethernet.ip_address) < 0 ||
         ngcd_json_escape(storage_location, sizeof(storage_location),
                          storage.location) < 0)
         return error_response(response, 500, "invalid system status");
@@ -783,7 +795,10 @@ static int system_status(struct ngcd_app *app,
         "\"is_usb_supply\":%d,\"batt_cap\":%d,\"ain_src\":%d,"
         "\"sys_temp\":%d,\"core_temp\":%d,"
         "\"ls\":{\"duration\":%d,\"video_bps\":%d},"
-        "\"eth0\":{\"ipaddr\":\"%s\"},\"gyro_x\":%d,\"gyro_y\":%d}}",
+        "\"eth0\":{\"ipaddr\":\"%s\"},"
+        "\"usbnet\":{\"enabled\":%d,\"configured\":%d,"
+        "\"port\":\"%s\",\"os\":\"%s\",\"ipaddr\":\"%s\"},"
+        "\"gyro_x\":%d,\"gyro_y\":%d}}",
         ip_address, mac_address, ssid, wifi.quality, wifi.level,
         state->recording ? 1 : 0,
         (unsigned long long)recording_duration_seconds(state),
@@ -793,7 +808,9 @@ static int system_status(struct ngcd_app *app,
         power.usb_supply, power.battery_percent,
         state->audio_input, power.system_temperature, power.core_temperature,
         state->live ? 1 : 0, state->live ? 1 : 0,
-        ethernet.ip_address, motion.gyro_x, motion.gyro_y);
+        ethernet.ip_address, usb_ethernet.enabled ? 1 : 0,
+        usb_ethernet.configured ? 1 : 0, usb_port, usb_os,
+        usb_ip_address, motion.gyro_x, motion.gyro_y);
 }
 
 static int ethernet_status(struct ngcd_app *app,
@@ -810,18 +827,35 @@ static int ethernet_status(struct ngcd_app *app,
 static int wifi_status(struct ngcd_app *app, struct ngcd_response *response)
 {
     struct ngcd_wifi_info info;
+    struct ngcd_usb_ethernet_info usb_ethernet;
     char ip_address[128], mac_address[64], ssid[NGCD_WIFI_SSID_MAX * 2U];
+    char usb_port[16], usb_os[16], usb_ip_address[32];
     if (app->backend.ops->wifi_status(&app->backend, &info) != 0)
         return error_response(response, 200, "failed to get wifi status");
+    memset(&usb_ethernet, 0, sizeof(usb_ethernet));
+    if (app->backend.ops->usb_ethernet_status == NULL ||
+        app->backend.ops->usb_ethernet_status(&app->backend,
+                                              &usb_ethernet) != 0)
+        memcpy(usb_ethernet.ip_address, "0.0.0.0", sizeof("0.0.0.0"));
     if (ngcd_json_escape(ip_address, sizeof(ip_address), info.ip_address) < 0 ||
         ngcd_json_escape(mac_address, sizeof(mac_address), info.mac_address) < 0 ||
-        ngcd_json_escape(ssid, sizeof(ssid), info.ssid) < 0)
+        ngcd_json_escape(ssid, sizeof(ssid), info.ssid) < 0 ||
+        ngcd_json_escape(usb_port, sizeof(usb_port), usb_ethernet.port) < 0 ||
+        ngcd_json_escape(usb_os, sizeof(usb_os),
+                         usb_ethernet.operating_system) < 0 ||
+        ngcd_json_escape(usb_ip_address, sizeof(usb_ip_address),
+                         usb_ethernet.ip_address) < 0)
         return error_response(response, 500, "invalid wifi status");
     return response_format(
         response, 200,
         "{\"code\":0,\"body\":{\"ipaddr\":\"%s\",\"mac\":\"%s\","
-        "\"essid\":\"%s\",\"qual\":%d,\"level\":%d}}",
-        ip_address, mac_address, ssid, info.quality, info.level);
+        "\"essid\":\"%s\",\"qual\":%d,\"level\":%d,"
+        "\"usbnet\":{\"enabled\":%d,\"configured\":%d,"
+        "\"port\":\"%s\",\"os\":\"%s\",\"ipaddr\":\"%s\"}}}",
+        ip_address, mac_address, ssid, info.quality, info.level,
+        usb_ethernet.enabled ? 1 : 0,
+        usb_ethernet.configured ? 1 : 0, usb_port, usb_os,
+        usb_ip_address);
 }
 
 static int set_usb_ethernet(struct ngcd_app *app,

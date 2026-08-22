@@ -1283,6 +1283,8 @@ static void test_contract(void)
     assert(response.status == 200);
     assert(strstr(response.body, "\"essid\":\"CALF-MOCK\"") != NULL);
     assert(strstr(response.body, "\"level\":-55") != NULL);
+    assert(strstr(response.body,
+                  "\"usbnet\":{\"enabled\":0,\"configured\":0") != NULL);
     response = dispatch(&app, NGCD_METHOD_GET,
                         "/camera/v2/scanwifi", NULL, NULL);
     assert(response.status == 200);
@@ -1294,6 +1296,13 @@ static void test_contract(void)
                         "\"usb_port_name\":\"USB1\",\"os\":\"win\"}");
     assert(response.status == 200);
     assert(strstr(response.body, "\"code\":0") != NULL);
+    response = dispatch(&app, NGCD_METHOD_GET,
+                        "/camera/v2/wifi", NULL, NULL);
+    assert(strstr(response.body,
+                  "\"usbnet\":{\"enabled\":1,\"configured\":1") != NULL);
+    assert(strstr(response.body, "\"port\":\"USB1\"") != NULL);
+    assert(strstr(response.body, "\"os\":\"win\"") != NULL);
+    assert(strstr(response.body, "\"ipaddr\":\"192.168.2.101\"") != NULL);
     response = dispatch(&app, NGCD_METHOD_POST,
                         "/camera/v2/wifi", NULL,
                         "{\"action\":\"setusbdc\","
@@ -1309,6 +1318,10 @@ static void test_contract(void)
                         "{\"action\":\"closeusbdc\"}");
     assert(response.status == 200);
     assert(strstr(response.body, "\"code\":0") != NULL);
+    response = dispatch(&app, NGCD_METHOD_GET,
+                        "/camera/v2/wifi", NULL, NULL);
+    assert(strstr(response.body,
+                  "\"usbnet\":{\"enabled\":0,\"configured\":0") != NULL);
     response = dispatch(&app, NGCD_METHOD_POST,
                         "/camera/v2/systemstatus", NULL, "{\"ssids\":1}");
     assert(response.status == 200);

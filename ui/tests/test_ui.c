@@ -30,7 +30,7 @@ static void test_drive_mode_settings_and_capture_controls(void)
     calf_ui_t ui;
     calf_action_t action;
     calf_backend_status_t status = {
-        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "",
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
     };
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
@@ -182,7 +182,7 @@ static void test_night_preview_timing(void)
 static void test_drive_mode_row_layout_and_navigation(void)
 {
     calf_backend_status_t status = {
-        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "",
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
     };
     int index;
     for(index = 0; index < CALF_DRIVE_MODE_COUNT; ++index) {
@@ -271,53 +271,12 @@ static void test_exposure_is_confirmed_only_after_success(void)
     assert(ui.screen == CALF_SCREEN_MAIN);
 }
 
-static void test_recording_blocks_lens_switch(void)
-{
-    calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
-    calf_action_t action;
-    calf_ui_init(&ui);
-    calf_ui_set_status(&ui, &status);
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_NONE);
-    assert(strstr(ui.message, "STOP RECORDING") != NULL);
-}
-
-static void test_live_and_playback_block_lens_switch(void)
-{
-    calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 1, 0, 0, 0, ""};
-    calf_action_t action;
-    calf_ui_init(&ui);
-    calf_ui_set_status(&ui, &status);
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_NONE);
-    assert(strstr(ui.message, "STOP LIVE") != NULL);
-
-    status.streaming = 0;
-    status.playback = 1;
-    calf_ui_set_status(&ui, &status);
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_NONE);
-    assert(strstr(ui.message, "STOP PLAYBACK") != NULL);
-}
-
-static void test_unknown_status_blocks_lens_switch(void)
-{
-    calf_ui_t ui;
-    calf_backend_status_t status = {0, 0, 80, 1000, 50, 55, -1, -1, -1, 0, ""};
-    calf_action_t action;
-    calf_ui_init(&ui);
-    calf_ui_set_status(&ui, &status);
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_NONE);
-    assert(strstr(ui.message, "STATUS UNKNOWN") != NULL);
-}
-
 static void test_status_changes_revision(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 72, 2048, 48, 52, 0, 0, 0, 0, ""};
+    calf_backend_status_t status = {
+        1, 0, 72, 2048, 48, 52, 0, 0, 0, 0, "", 0, 0, "", "", "",
+    };
     uint32_t revision;
     calf_ui_init(&ui);
     revision = ui.revision;
@@ -347,7 +306,7 @@ static void test_live_histogram_button_and_render(void)
     uint32_t revision;
     int index;
     calf_ui_init(&ui);
-    assert(calf_ui_tap(&ui, 400, 440).kind == CALF_ACTION_NONE);
+    assert(calf_ui_tap(&ui, 300, 440).kind == CALF_ACTION_NONE);
     assert(ui.live_histogram_visible == 1);
     assert(ui.live_histogram_valid == 0);
     for(index = 0; index < CALF_HISTOGRAM_BIN_COUNT; ++index)
@@ -423,7 +382,7 @@ static void test_main_bottom_button_touch_areas(void)
     assert(ui.screen == CALF_SCREEN_ISO);
     assert(calf_ui_key_press(&ui, CALF_KEY_BACK).kind == CALF_ACTION_NONE);
     assert(ui.screen == CALF_SCREEN_MAIN);
-    assert(calf_ui_tap(&ui, 162, 440).kind == CALF_ACTION_NONE);
+    assert(calf_ui_tap(&ui, 202, 440).kind == CALF_ACTION_NONE);
     assert(ui.screen == CALF_SCREEN_MAIN);
     assert(calf_ui_tap(&ui, 550, 440).kind == CALF_ACTION_NONE);
     assert(ui.screen == CALF_SCREEN_DRIVE_MODE);
@@ -436,7 +395,9 @@ static void test_main_bottom_button_touch_areas(void)
 static void test_battery_charge_states_render(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 0, 55, 2048, 48, 52, 0, 0, 1, 0, ""};
+    calf_backend_status_t status = {
+        1, 0, 55, 2048, 48, 52, 0, 0, 1, 0, "", 0, 0, "", "", "",
+    };
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -794,32 +755,13 @@ static void test_night_mode_has_manual_long_exposure_controls(void)
     assert(action.kind == CALF_ACTION_SET_EXPOSURE);
 }
 
-static void test_main_zoom_toggles_operator_left_and_stereo_directly(void)
-{
-    calf_ui_t ui;
-    calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
-    calf_ui_init(&ui);
-    calf_ui_set_status(&ui, &status);
-    ui.lens_known = 1;
-    ui.lens_index = 1;
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_SET_CAMERA_MODE);
-    assert(strcmp(action.value, "SENSOR0_4K") == 0);
-    assert(action.selection == 0);
-    calf_ui_complete_action(&ui, action, 1, "MODE UPDATED");
-    assert(ui.lens_index == 0);
-    action = calf_ui_tap(&ui, 200, 440);
-    assert(action.kind == CALF_ACTION_SET_CAMERA_MODE);
-    assert(strcmp(action.value, "PRIMARY") == 0);
-    assert(action.selection == 1);
-}
-
 static void test_capture_mode_switch_is_transactional_and_interlocked(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
+    calf_backend_status_t status = {
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
+    };
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
     (void)calf_ui_tap(&ui, 720, 420);
@@ -927,7 +869,9 @@ static void test_gallery_navigation_and_confirmed_delete(void)
 static void test_gallery_enter_reports_blocking_camera_state(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
+    calf_backend_status_t status = {
+        1, 1, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
+    };
     calf_action_t action;
 
     calf_ui_init(&ui);
@@ -966,7 +910,9 @@ static void test_gallery_enter_reports_blocking_camera_state(void)
 static void test_recording_duration_updates_status_revision(void)
 {
     calf_ui_t ui;
-    calf_backend_status_t status = {1, 1, 80, 1000, 50, 55, 0, 0, 0, 1, ""};
+    calf_backend_status_t status = {
+        1, 1, 80, 1000, 50, 55, 0, 0, 0, 1, "", 0, 0, "", "", "",
+    };
     uint32_t revision;
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1535,19 +1481,36 @@ static void test_usb_ethernet_modes_are_selectable(void)
     assert(ui.usb_ethernet_known == 1 && ui.usb_ethernet_index == 3);
 
     assert(calf_ui_tap(&ui, 600, 330).kind == CALF_ACTION_NONE);
-    action = calf_ui_tap(&ui, 100, 120);
+    action = calf_ui_tap(&ui, 100, 140);
     assert(action.kind == CALF_ACTION_SET_USB_ETHERNET);
     assert(action.selection == 0);
     assert(strcmp(action.value, "off") == 0);
     calf_ui_complete_action(&ui, action, 1, "USB NETWORK OFF");
     assert(ui.usb_ethernet_index == 0);
+
+    status = ui.status;
+    status.usb_ethernet_enabled = 1;
+    status.usb_ethernet_configured = 0;
+    strcpy(status.usb_ethernet_port, "USB2");
+    strcpy(status.usb_ethernet_os, "mac");
+    strcpy(status.usb_ethernet_ip_address, "0.0.0.0");
+    calf_ui_set_status(&ui, &status);
+    assert(ui.usb_ethernet_known == 1 && ui.usb_ethernet_index == 4);
+    assert(ui.status.usb_ethernet_configured == 0);
+    status.usb_ethernet_configured = 1;
+    strcpy(status.usb_ethernet_ip_address, "192.168.2.101");
+    calf_ui_set_status(&ui, &status);
+    assert(strcmp(ui.status.usb_ethernet_ip_address,
+                  "192.168.2.101") == 0);
 }
 
 static void test_stock_ui_switch_is_confirmed_and_interlocked(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
+    calf_backend_status_t status = {
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
+    };
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1578,7 +1541,9 @@ static void test_resolution_and_encoder_settings_are_functional(void)
 {
     calf_ui_t ui;
     calf_action_t action;
-    calf_backend_status_t status = {1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, ""};
+    calf_backend_status_t status = {
+        1, 0, 80, 1000, 50, 55, 0, 0, 0, 0, "", 0, 0, "", "", "",
+    };
     static uint32_t pixels[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_ui_init(&ui);
     calf_ui_set_status(&ui, &status);
@@ -1728,6 +1693,7 @@ static void test_embedded_font_supports_utf8_and_symbol_fallbacks(void)
     assert(calf_font_has_codepoint(0x2713u)); /* ✓: Symbols 2 */
     assert(calf_font_has_codepoint(0x1f4f7u)); /* 📷: Symbols 2 */
     assert(calf_font_text_width("SPRÅK Ω Ж → ✓ 📷", 3) > 0);
+    assert(calf_font_text_width("HISTOGRAM", 2) <= 170);
     assert(calf_font_text_height(1) == 18);
     assert(calf_font_text_height(3) == 30);
 
@@ -1751,9 +1717,6 @@ int main(void)
     test_night_preview_timing();
     test_drive_mode_row_layout_and_navigation();
     test_exposure_is_confirmed_only_after_success();
-    test_recording_blocks_lens_switch();
-    test_live_and_playback_block_lens_switch();
-    test_unknown_status_blocks_lens_switch();
     test_status_changes_revision();
     test_render_keeps_preview_area_transparent();
     test_live_histogram_button_and_render();
@@ -1774,7 +1737,6 @@ int main(void)
     test_video_exposure_choices_follow_profile_frame_rate();
     test_main_mode_button_opens_capture_mode();
     test_night_mode_has_manual_long_exposure_controls();
-    test_main_zoom_toggles_operator_left_and_stereo_directly();
     test_capture_mode_switch_is_transactional_and_interlocked();
     test_gallery_navigation_and_confirmed_delete();
     test_gallery_enter_reports_blocking_camera_state();

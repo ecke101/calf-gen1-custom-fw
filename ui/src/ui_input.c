@@ -128,9 +128,9 @@ static int drive_mode_move_focus(int current, calf_key_t key)
 rect_t main_button_cell(int index)
 {
     rect_t rectangle;
-    rectangle.x = 8 + index * 158 + (index > 2 ? 2 : 0);
+    rectangle.x = 8 + index * 198;
     rectangle.y = 414;
-    rectangle.w = index == 2 ? 152 : 150;
+    rectangle.w = 190;
     rectangle.h = 58;
     return rectangle;
 }
@@ -319,7 +319,7 @@ static int screen_grid(const calf_ui_t *ui, calf_screen_t screen,
     }
     else if(screen == CALF_SCREEN_USB_ETHERNET) {
         *count = (int)ARRAY_SIZE(k_usb_ethernet_values); *columns = 2;
-        *top = 80; *height = 82;
+        *top = 126; *height = 68;
     }
     else if(screen == CALF_SCREEN_WHITE_BALANCE) {
         *count = (int)ARRAY_SIZE(k_white_balances); *columns = 3;
@@ -517,11 +517,6 @@ void calf_ui_focus_default(calf_ui_t *ui)
     ui->focus_index = 0;
     ui->focus_visible = 0;
 
-    if(ui->screen == CALF_SCREEN_LENS) {
-        ui->focus_index = ui->lens_known ? ui->lens_index : 0;
-        ui->focus_visible = 1;
-        return;
-    }
     if(ui->screen == CALF_SCREEN_ADJUST_DATETIME ||
        ui->screen == CALF_SCREEN_WIFI_PASSWORD ||
        ui->screen == CALF_SCREEN_DELETE_CONFIRM ||
@@ -676,11 +671,7 @@ static calf_action_t activate_focus(calf_ui_t *ui)
     int focus = ui->focus_index;
     calf_screen_t old_screen = ui->screen;
     calf_action_t action;
-    if(ui->screen == CALF_SCREEN_LENS) {
-        if(focus < 0 || focus >= (int)ARRAY_SIZE(k_lenses)) focus = 0;
-        rectangle = (rect_t){16 + focus * 262, 126, 244, 218};
-    }
-    else if(ui->screen == CALF_SCREEN_DRIVE_MODE) {
+    if(ui->screen == CALF_SCREEN_DRIVE_MODE) {
         if(focus < 0 || focus >= (int)ARRAY_SIZE(k_drive_modes)) focus = 0;
         rectangle = drive_mode_cell(focus);
     }
@@ -1051,11 +1042,7 @@ calf_action_t calf_ui_key_press(calf_ui_t *ui, calf_key_t key)
         return no_action();
     }
 
-    if(ui->screen == CALF_SCREEN_LENS) {
-        count = (int)ARRAY_SIZE(k_lenses);
-        columns = 3;
-    }
-    else if(!screen_grid(ui, ui->screen, &count, &columns, &top, &height))
+    if(!screen_grid(ui, ui->screen, &count, &columns, &top, &height))
         return no_action();
     (void)top;
     (void)height;
@@ -1069,33 +1056,6 @@ calf_action_t calf_ui_key_press(calf_ui_t *ui, calf_key_t key)
     ui->focus_visible = 1;
     ++ui->revision;
     return no_action();
-}
-
-static calf_action_t camera_mode_action(calf_ui_t *ui, const char *value,
-                                        int selection)
-{
-    if(!ui->status.online) {
-        calf_ui_notice(ui, "STATUS UNKNOWN", 1);
-        return no_action();
-    }
-    if(ui->status.recording) {
-        calf_ui_notice(ui, "STOP RECORDING FIRST", 1);
-        return no_action();
-    }
-    if(ui->status.streaming != 0) {
-        calf_ui_notice(ui, ui->status.streaming > 0
-                               ? "STOP LIVE FIRST" : "LIVE STATUS UNKNOWN",
-                       1);
-        return no_action();
-    }
-    if(ui->status.playback != 0) {
-        calf_ui_notice(ui, ui->status.playback > 0
-                               ? "STOP PLAYBACK FIRST"
-                               : "PLAY STATUS UNKNOWN",
-                       1);
-        return no_action();
-    }
-    return begin_action(ui, CALF_ACTION_SET_CAMERA_MODE, value, selection);
 }
 
 static calf_action_t guarded_setting_action(calf_ui_t *ui,
@@ -1135,7 +1095,7 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
 
     if(ui->capture_sequence_active) {
         if(ui->screen == CALF_SCREEN_MAIN &&
-           contains(main_button_cell(3), x, y))
+           contains(main_button_cell(2), x, y))
             return begin_quiet_action(
                 ui, CALF_ACTION_CAPTURE_SEQUENCE_CANCEL,
                 (const char *)0, -1);
@@ -1285,10 +1245,9 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
 
     if(ui->screen == CALF_SCREEN_MAIN) {
         const rect_t settings = main_button_cell(0);
-        const rect_t zoom = main_button_cell(1);
-        const rect_t histogram = main_button_cell(2);
-        const rect_t mode_or_record = main_button_cell(3);
-        const rect_t record = main_button_cell(4);
+        const rect_t histogram = main_button_cell(1);
+        const rect_t mode_or_record = main_button_cell(2);
+        const rect_t record = main_button_cell(3);
         if(contains(settings, x, y)) {
             change_screen(ui, CALF_SCREEN_SETTINGS);
             return no_action();
@@ -1311,11 +1270,6 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
             change_screen(ui, CALF_SCREEN_ISO);
             return no_action();
         }
-        if(contains(zoom, x, y))
-            return camera_mode_action(
-                ui, ui->lens_known && ui->lens_index == 0
-                        ? k_lenses[1].value : k_lenses[0].value,
-                ui->lens_known && ui->lens_index == 0 ? 1 : 0);
         if(contains(histogram, x, y)) {
             ui->live_histogram_visible = !ui->live_histogram_visible;
             if(ui->live_histogram_visible) {
@@ -1361,13 +1315,6 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
                 return begin_action(ui, CALF_ACTION_SET_ISO,
                                     choices[i].value,
                                     calf_iso_index_for_value(choices[i].value));
-        }
-    }
-    else if(ui->screen == CALF_SCREEN_LENS) {
-        for(i = 0; i < (int)ARRAY_SIZE(k_lenses); ++i) {
-            rect_t rectangle = {16 + i * 262, 126, 244, 218};
-            if(contains(rectangle, x, y))
-                return camera_mode_action(ui, k_lenses[i].value, i);
         }
     }
     else if(ui->screen == CALF_SCREEN_SETTINGS) {
@@ -1459,7 +1406,7 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
     }
     else if(ui->screen == CALF_SCREEN_USB_ETHERNET) {
         for(i = 0; i < (int)ARRAY_SIZE(k_usb_ethernet_values); ++i) {
-            if(contains(grid_cell(i, 2, 80, 82), x, y))
+            if(contains(grid_cell(i, 2, 126, 68), x, y))
                 return begin_action(ui, CALF_ACTION_SET_USB_ETHERNET,
                                     k_usb_ethernet_values[i].value, i);
         }
@@ -1494,12 +1441,9 @@ calf_action_t calf_ui_tap(calf_ui_t *ui, int x, int y)
             ui->focus_visible = 1;
             return no_action();
         }
-        for(i = 5; i < 8; ++i) {
-            if(i == 6 || i == 7) continue;
-            if(contains(grid_cell(i, 2, 80, 82), x, y)) {
-                calf_ui_notice(ui, "COMING NEXT", 0);
-                return no_action();
-            }
+        if(contains(grid_cell(5, 2, 80, 82), x, y)) {
+            calf_ui_notice(ui, "COMING NEXT", 0);
+            return no_action();
         }
     }
     else if(ui->screen == CALF_SCREEN_LANGUAGE) {

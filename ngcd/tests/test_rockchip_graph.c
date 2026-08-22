@@ -46,6 +46,9 @@ struct fake_context {
     unsigned int stack_frame_index;
     void *stack_output;
     size_t stack_output_size;
+    unsigned char histogram_luma[640U * 528U];
+    unsigned int histogram_frames;
+    unsigned int histogram_releases;
 };
 
 static uint32_t get_u32(const void *buffer, size_t offset)
@@ -308,12 +311,19 @@ static int fake_vpss_set_channel_attr(void *opaque, int group, int channel,
                                       const void *attribute)
 {
     struct fake_context *context = opaque;
-    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 1 &&
+    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 2 &&
            attribute != NULL);
     assert(get_u32(attribute, 0) == 2);
-    assert(get_u32(attribute, 4) == (channel == 0 ? 3520U : 400U));
-    assert(get_u32(attribute, 8) == (channel == 0 ? 2880U : 400U));
-    assert(get_u32(attribute, 24) == (channel == 0 ? 0U : 1U));
+    assert(get_u32(attribute, 4) ==
+           (channel == 0 ? 3520U : channel == 1 ? 400U : 640U));
+    assert(get_u32(attribute, 8) ==
+           (channel == 0 ? 2880U : channel == 1 ? 400U : 528U));
+    assert(get_u32(attribute, 24) ==
+           (channel == 1 ? 1U : 0U));
+    assert(get_u32(attribute, 28) ==
+           (channel == 0 ? 30U : channel == 1 ? 25U : 10U));
+    assert(get_u32(attribute, 32) ==
+           (channel == 0 ? 30U : channel == 1 ? 25U : 10U));
     assert(get_u32(attribute, 44) == 3);
     return step(context);
 }
@@ -321,7 +331,7 @@ static int fake_vpss_set_channel_attr(void *opaque, int group, int channel,
 static int fake_vpss_enable_channel(void *opaque, int group, int channel)
 {
     struct fake_context *context = opaque;
-    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 1);
+    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 2);
     if (step(context) != 0) return -1;
     ++context->vpss_channel_balance;
     return 0;
@@ -330,8 +340,35 @@ static int fake_vpss_enable_channel(void *opaque, int group, int channel)
 static int fake_vpss_disable_channel(void *opaque, int group, int channel)
 {
     struct fake_context *context = opaque;
-    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 1);
+    assert(group >= 0 && group < 2 && channel >= 0 && channel <= 2);
     --context->vpss_channel_balance;
+    return 0;
+}
+
+static int fake_vpss_get_channel_frame(void *opaque, int group, int channel,
+                                       void *frame, int timeout_ms)
+{
+    struct fake_context *context = opaque;
+    unsigned int index;
+    assert(group == 0 && channel == 2 && frame != NULL && timeout_ms == 250);
+    if (step(context) != 0)
+        return -1;
+    for (index = 0U; index < sizeof(context->histogram_luma); ++index)
+        context->histogram_luma[index] = (unsigned char)(index & 0xffU);
+    put_u32(frame, 8U, 640U);
+    put_u32(frame, 12U, 528U);
+    put_u32(frame, 16U, 640U);
+    put_pointer(frame, 48U, context->histogram_luma);
+    ++context->histogram_frames;
+    return 0;
+}
+
+static int fake_vpss_release_channel_frame(void *opaque, int group,
+                                           int channel, const void *frame)
+{
+    struct fake_context *context = opaque;
+    assert(group == 0 && channel == 2 && frame != NULL);
+    ++context->histogram_releases;
     return 0;
 }
 
@@ -958,6 +995,8 @@ static const struct ngcd_rk_api FAKE_API = {
     .vpss_set_channel_attr = fake_vpss_set_channel_attr,
     .vpss_enable_channel = fake_vpss_enable_channel,
     .vpss_disable_channel = fake_vpss_disable_channel,
+    .vpss_get_channel_frame = fake_vpss_get_channel_frame,
+    .vpss_release_channel_frame = fake_vpss_release_channel_frame,
     .avs_set_working_set = fake_avs_working_set,
     .avs_create_group = fake_avs_create_group,
     .avs_destroy_group = fake_avs_destroy_group,
@@ -1171,6 +1210,31 @@ int main(void)
             (void)ngcd_rk_graph_tick(&graph);
             ngcd_rk_graph_stop(&graph);
         }
+        assert_clean(&context, &graph);
+    }
+    {
+        struct fake_context context;
+        struct ngcd_rk_graph graph;
+        struct ngcd_rk_display display;
+        uint32_t bins[NGCD_HISTOGRAM_BINS];
+        uint64_t total = 0U;
+        size_t index;
+        memset(&context, 0, sizeof(context));
+        memset(&display, 0, sizeof(display));
+        display.device_started = true;
+        assert(ngcd_rk_graph_start_in_system(
+                   &graph, &FAKE_API, &context, &value, &display) == 0);
+        assert(ngcd_rk_graph_histogram(&graph, bins) == 0);
+        for (index = 0U; index < NGCD_HISTOGRAM_BINS; ++index)
+            total += bins[index];
+        assert(total > 1000U);
+        assert(context.histogram_frames == 1U);
+        assert(context.histogram_releases == 1U);
+        context.fail_at = context.calls + 1;
+        assert(ngcd_rk_graph_histogram(&graph, bins) != 0);
+        assert(context.histogram_releases == 1U);
+        context.fail_at = 0;
+        ngcd_rk_graph_stop(&graph);
         assert_clean(&context, &graph);
     }
     {

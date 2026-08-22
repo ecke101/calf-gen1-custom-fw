@@ -254,6 +254,18 @@ static int select_screenshot_screen(calf_ui_t *ui, const char *name)
             ui, CALF_ACTION_SET_EFFECT, "none");
     }
     else if(strcmp(name, "general") == 0) ui->screen = CALF_SCREEN_SETTINGS_GENERAL;
+    else if(strcmp(name, "usb-direct-off") == 0)
+        ui->screen = CALF_SCREEN_USB_ETHERNET;
+    else if(strcmp(name, "usb-direct") == 0) {
+        ui->screen = CALF_SCREEN_USB_ETHERNET;
+        ui->status.usb_ethernet_enabled = 1;
+        ui->status.usb_ethernet_configured = 1;
+        strcpy(ui->status.usb_ethernet_port, "USB1");
+        strcpy(ui->status.usb_ethernet_os, "win");
+        strcpy(ui->status.usb_ethernet_ip_address, "192.168.2.101");
+        ui->usb_ethernet_index = 1;
+        ui->usb_ethernet_known = 1;
+    }
     else if(strcmp(name, "language") == 0) ui->screen = CALF_SCREEN_LANGUAGE;
     else if(strcmp(name, "indicator-led") == 0) {
         calf_ui_set_indicator_led(ui, 1);
@@ -437,7 +449,8 @@ int main(int argc, char **argv)
     static uint32_t preview[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     static uint32_t overlay[CALF_UI_WIDTH * CALF_UI_HEIGHT];
     calf_backend_status_t status = {
-        1, 0, 82, 64321, 47, 53, 0, 0, 0, 0, "192.168.50.24"
+        1, 0, 82, 64321, 47, 53, 0, 0, 0, 0, "192.168.50.24",
+        0, 0, "", "", "",
     };
     calf_ui_t ui;
     uint32_t rendered_revision = 0;
@@ -475,7 +488,8 @@ int main(int argc, char **argv)
                 "usage: %s [--screenshot FILE.bmp "
                 "[main|main-motion|settings|camera|resolution|drive-mode|image|video-recording|"
                 "live-streaming|live-codec|uvc|"
-                "general|language|power-history|brightness|display|display-off|"
+                "general|usb-direct|usb-direct-off|language|"
+                "power-history|brightness|display|display-off|"
                 "audio|audio-input|audio-volume|speaker-volume|"
                 "datetime|timezone|"
                 "adjust-datetime|charging|charged|video|recording|limits|wifi|"

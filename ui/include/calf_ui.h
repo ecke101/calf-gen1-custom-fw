@@ -19,7 +19,6 @@ typedef enum {
     CALF_SCREEN_MAIN = 0,
     CALF_SCREEN_EXPOSURE,
     CALF_SCREEN_ISO,
-    CALF_SCREEN_LENS,
     CALF_SCREEN_SETTINGS,
     CALF_SCREEN_SETTINGS_CAMERA,
     CALF_SCREEN_SETTINGS_IMAGE,
@@ -176,6 +175,11 @@ typedef struct {
     int usb_power;
     int recording_seconds;
     char ethernet_ip_address[16];
+    int usb_ethernet_enabled;
+    int usb_ethernet_configured;
+    char usb_ethernet_port[5];
+    char usb_ethernet_os[4];
+    char usb_ethernet_ip_address[16];
 } calf_backend_status_t;
 
 /* Battery current and power are positive while the battery supplies the

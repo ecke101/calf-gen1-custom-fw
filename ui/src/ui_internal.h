@@ -32,7 +32,6 @@ enum {
 
 extern const choice_t k_exposures[20];
 extern const choice_t k_isos[9];
-extern const choice_t k_lenses[3];
 extern const choice_t k_capture_modes[3];
 extern const choice_t k_video_resolutions[9];
 extern const choice_t k_photo_resolutions[2];

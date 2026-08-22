@@ -2411,6 +2411,7 @@ static int api_poll_status(calf_backend_status_t *status)
     int value;
     const char *recording_section;
     const char *live_section;
+    const char *usb_ethernet_section;
     if(http_request("POST", "/camera/v2/systemstatus", "{\"ssids\":4398}",
                     response, sizeof(response)) != 0 || !response_code_ok(response)) {
         status->online = 0;
@@ -2421,6 +2422,28 @@ static int api_poll_status(calf_backend_status_t *status)
         status->battery_percent = value;
     if(parse_integer_after(response, "\"is_usb_supply\"", &value) == 0)
         status->usb_power = value != 0;
+    status->usb_ethernet_enabled = -1;
+    status->usb_ethernet_configured = -1;
+    status->usb_ethernet_port[0] = '\0';
+    status->usb_ethernet_os[0] = '\0';
+    status->usb_ethernet_ip_address[0] = '\0';
+    usb_ethernet_section = find_text(response, "\"usbnet\"");
+    if(usb_ethernet_section != (const char *)0) {
+        if(parse_integer_after(usb_ethernet_section, "\"enabled\"", &value) == 0)
+            status->usb_ethernet_enabled = value != 0;
+        if(parse_integer_after(usb_ethernet_section, "\"configured\"", &value) == 0)
+            status->usb_ethernet_configured = value != 0;
+        (void)parse_scalar_after(usb_ethernet_section, "\"port\"",
+                                 status->usb_ethernet_port,
+                                 sizeof(status->usb_ethernet_port));
+        (void)parse_scalar_after(usb_ethernet_section, "\"os\"",
+                                 status->usb_ethernet_os,
+                                 sizeof(status->usb_ethernet_os));
+        (void)parse_scalar_after(
+            usb_ethernet_section, "\"ipaddr\"",
+            status->usb_ethernet_ip_address,
+            sizeof(status->usb_ethernet_ip_address));
+    }
     if(parse_integer_after(response, "\"free_mb\"", &value) == 0)
         status->storage_free_mb = value;
     if(parse_integer_after(response, "\"sys_temp\"", &value) == 0)
@@ -3115,7 +3138,7 @@ static const char *success_message(calf_action_kind_t kind)
     if(kind == CALF_ACTION_SET_WIFI_ENABLED)
         return "WI-FI POWER UPDATED";
     if(kind == CALF_ACTION_SET_USB_ETHERNET)
-        return "USB NETWORK  192.168.2.101";
+        return "USB SETUP STARTED";
     if(kind == CALF_ACTION_FIRMWARE_CHECK) return "";
     if(kind == CALF_ACTION_FIRMWARE_INSTALL) return "REBOOTING TO UPDATE";
     if(kind == CALF_ACTION_LOAD_STOCK_UI) return "LOADING STOCK UI";
@@ -3933,6 +3956,9 @@ static int camera_main(void)
                 int changes_night_state =
                     capture_mode == CALF_CAPTURE_NIGHT ||
                     selected_mode == CALF_CAPTURE_NIGHT;
+                int entering_night =
+                    capture_mode != CALF_CAPTURE_NIGHT &&
+                    selected_mode == CALF_CAPTURE_NIGHT;
                 int graph_changed = 0;
                 departing_exposure[0] = '\0';
                 departing_iso[0] = '\0';
@@ -3968,8 +3994,28 @@ static int camera_main(void)
                             "CAPTURE_MODE", "stage:night-timing-restore", 0);
                         api_restore_standard_preview_timing();
                     }
-                    result = api_start_initial_camera_graph(selected_profile);
-                    graph_changed = result == 0;
+                    /* Photo and Night share VR180_PIC, but the no-op graph
+                     * start can retain an AIQ context that accepts the 4 fps
+                     * range write without publishing it on a sensor frame.
+                     * Entering Night therefore gets one explicit graph
+                     * restart before image state and the atomic preview
+                     * transaction are reapplied. The existing failure path
+                     * restores the departing graph and settings. */
+                    if(entering_night) {
+                        result = api_stop_camera_graph();
+                        if(result == 0) {
+                            graph_changed = 1;
+                            result = api_start_initial_camera_graph(
+                                         selected_profile);
+                        }
+                        else supervisor_log_event(
+                            "CAPTURE_MODE", "stage:graph-stop", -1);
+                    }
+                    else {
+                        result = api_start_initial_camera_graph(
+                                     selected_profile);
+                        graph_changed = result == 0;
+                    }
                     if(result != 0) {
                         failure_message = "MODE GRAPH FAILED";
                         supervisor_log_event(

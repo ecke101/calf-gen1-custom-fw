@@ -139,6 +139,14 @@ struct ngcd_ethernet_info {
     char ip_address[16];
 };
 
+struct ngcd_usb_ethernet_info {
+    bool enabled;
+    bool configured;
+    char port[5];
+    char operating_system[4];
+    char ip_address[16];
+};
+
 struct ngcd_power_info {
     int battery_percent;
     int usb_supply;
@@ -175,6 +183,7 @@ struct ngcd_runtime_state {
     bool srt;
     bool open_stream;
     bool uvc;
+    struct ngcd_usb_ethernet_info usb_ethernet;
     int backlight;
     int backlight_saved;
     int audio_auto;
@@ -238,6 +247,8 @@ struct ngcd_backend_ops {
                      size_t *count);
     int (*usb_ethernet)(struct ngcd_backend *backend, const char *port,
                         const char *operating_system, bool enable);
+    int (*usb_ethernet_status)(struct ngcd_backend *backend,
+                              struct ngcd_usb_ethernet_info *info);
     int (*ethernet_status)(struct ngcd_backend *backend,
                            struct ngcd_ethernet_info *info);
     int (*power_status)(struct ngcd_backend *backend,
@@ -307,6 +318,7 @@ const char *ngcd_usb_ethernet_udc(const char *port);
 const char *ngcd_usb_ethernet_function(const char *operating_system);
 int ngcd_usb_ethernet_set(const char *port, const char *operating_system);
 int ngcd_usb_ethernet_close(void);
+int ngcd_usb_ethernet_status(struct ngcd_usb_ethernet_info *info);
 int ngcd_network_interface_ipv4(const char *interface_name,
                                 char *address, size_t address_size);
 int ngcd_ethernet_read_status(struct ngcd_ethernet_info *info);

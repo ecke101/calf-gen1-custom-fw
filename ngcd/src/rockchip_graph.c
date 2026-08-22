@@ -2089,6 +2089,13 @@ static int start_preview(struct ngcd_rk_graph *graph,
                                true) != 0)
             return -1;
     }
+    /* Keep exposure metering off the VO write-back path. Sampling a small,
+     * unbound channel from sensor 0 cannot capture the graphics plane and
+     * therefore cannot create recursive LCD feedback. Histogram availability
+     * is nonessential, so a resource-constrained camera may omit this channel
+     * without preventing the primary preview graph from starting. */
+    /* Keep both scale axes within RK3588 RGA3's 1/8 downscale limit. */
+    (void)start_vpss_channel(graph, 0, 2, 640, 528, 10, false);
     if (start_video_layer(graph) != 0)
         return -1;
     if (stitched) {
@@ -2109,6 +2116,92 @@ static int start_preview(struct ngcd_rk_graph *graph,
         graph->vpss_vo_bind_mask |= 1U << 1;
     }
     return 0;
+}
+
+int ngcd_rk_graph_histogram(
+    struct ngcd_rk_graph *graph,
+    uint32_t bins[NGCD_HISTOGRAM_BINS])
+{
+    enum { HISTOGRAM_GROUP = 0, HISTOGRAM_CHANNEL = 2 };
+    unsigned char frame[NGCD_RK_VIDEO_FRAME_SIZE];
+    unsigned char *luma;
+    void *handle;
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    uint32_t minimum_dimension;
+    size_t required;
+    size_t block_size;
+    unsigned int channel_bit =
+        1U << (unsigned int)(HISTOGRAM_GROUP * 8 + HISTOGRAM_CHANNEL);
+    int center_x;
+    int center_y;
+    int radius;
+    int step;
+    int x;
+    int y;
+    size_t index;
+    int result;
+    if (graph == NULL || bins == NULL || graph->api == NULL ||
+        (graph->vpss_channel_mask & channel_bit) == 0U ||
+        graph->api->vpss_get_channel_frame == NULL ||
+        graph->api->vpss_release_channel_frame == NULL ||
+        graph->api->mb_handle_to_address == NULL ||
+        graph->api->mb_get_size == NULL)
+        return -1;
+    memset(frame, 0, sizeof(frame));
+    /* This unbound 10-fps output is produced on demand.  Allow more than one
+     * 100 ms frame interval; the 20 ms bound used by continuously driven
+     * outputs can time out before Rockit produces the first frame. */
+    if (graph->api->vpss_get_channel_frame(
+            graph->api_context, HISTOGRAM_GROUP, HISTOGRAM_CHANNEL,
+            frame, 250) != 0)
+        return -1;
+    width = get_u32(frame, 8U);
+    height = get_u32(frame, 12U);
+    stride = get_u32(frame, 16U);
+    handle = get_pointer(frame, 0U);
+    luma = get_pointer(frame, 48U);
+    if (luma == NULL && handle != NULL)
+        luma = graph->api->mb_handle_to_address(graph->api_context, handle);
+    block_size = handle != NULL
+                     ? graph->api->mb_get_size(graph->api_context, handle)
+                     : 0U;
+    result = -1;
+    if (width < 64U || width > 8192U || height < 64U || height > 8192U ||
+        stride < width || stride > 8192U || height > SIZE_MAX / stride)
+        goto release;
+    required = (size_t)stride * height;
+    if (luma == NULL || (block_size != 0U && block_size < required))
+        goto release;
+    for (index = 0U; index < NGCD_HISTOGRAM_BINS; ++index)
+        bins[index] = 0U;
+    center_x = (int)width / 2;
+    center_y = (int)height / 2;
+    minimum_dimension = width < height ? width : height;
+    radius = (int)(minimum_dimension * 7U / 20U);
+    step = radius / 140;
+    if (step < 1)
+        step = 1;
+    for (y = center_y - radius; y <= center_y + radius; y += step) {
+        for (x = center_x - radius; x <= center_x + radius; x += step) {
+            int delta_x = x - center_x;
+            int delta_y = y - center_y;
+            unsigned int value;
+            if (x < 0 || y < 0 || x >= (int)width || y >= (int)height ||
+                delta_x * delta_x + delta_y * delta_y > radius * radius)
+                continue;
+            value = luma[(size_t)y * stride + (size_t)x];
+            ++bins[value >> 2U];
+        }
+    }
+    result = 0;
+release:
+    if (graph->api->vpss_release_channel_frame(
+            graph->api_context, HISTOGRAM_GROUP, HISTOGRAM_CHANNEL,
+            frame) != 0)
+        result = -1;
+    return result;
 }
 
 void ngcd_rk_graph_stop(struct ngcd_rk_graph *graph)

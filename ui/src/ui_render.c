@@ -435,10 +435,9 @@ static void draw_main(const calf_ui_t *ui, uint32_t *pixels, int stride)
     const char *white_balance_value;
     const char *ev_value;
     const rect_t settings = main_button_cell(0);
-    const rect_t zoom = main_button_cell(1);
-    const rect_t histogram = main_button_cell(2);
-    const rect_t mode_or_record = main_button_cell(3);
-    const rect_t record = main_button_cell(4);
+    const rect_t histogram = main_button_cell(1);
+    const rect_t mode_or_record = main_button_cell(2);
+    const rect_t record = main_button_cell(3);
     int value_width = ui->status.recording ? 121 : 133;
     exposure_value = ui->exposure_known
                          ? k_exposures[ui->exposure_index].label : "?";
@@ -472,11 +471,7 @@ static void draw_main(const calf_ui_t *ui, uint32_t *pixels, int stride)
                     "ISO", iso_value);
     fill_rect(pixels, stride, (rect_t){0, 408, 800, 72}, 0xc012181eu);
     draw_button(pixels, stride, settings, "SETTINGS", 0, 0);
-    draw_button(pixels, stride, zoom,
-                ui->lens_known && ui->lens_index == 0
-                    ? "FULL" : "ZOOM", ui->lens_known && ui->lens_index == 0,
-                0);
-    draw_button(pixels, stride, histogram, "HIST",
+    draw_button(pixels, stride, histogram, "HISTOGRAM",
                 ui->live_histogram_visible, 0);
     draw_button(pixels, stride, mode_or_record,
                 ui->capture_sequence_active
@@ -550,6 +545,47 @@ static void draw_choice_grid(const calf_ui_t *ui, uint32_t *pixels, int stride,
         if(ui->focus_visible && ui->focus_index == i)
             draw_focus_frame(pixels, stride, rectangle);
     }
+}
+
+static void draw_usb_ethernet(const calf_ui_t *ui, uint32_t *pixels,
+                              int stride)
+{
+    char detail[96];
+    const char *status;
+    uint32_t color = 0xffffd166u;
+    detail[0] = '\0';
+    if(ui->status.usb_ethernet_enabled < 0)
+        status = "STATUS UNAVAILABLE";
+    else if(ui->status.usb_ethernet_enabled == 0) {
+        status = "OFF - SELECT A PORT AND COMPUTER TYPE";
+        color = 0xffd8e1e8u;
+    }
+    else if(ui->status.usb_ethernet_configured <= 0)
+        status = "WAITING FOR COMPUTER - CHECK DATA CABLE";
+    else if(text_equal(ui->status.usb_ethernet_ip_address, "") ||
+            text_equal(ui->status.usb_ethernet_ip_address, "0.0.0.0"))
+        status = "COMPUTER CONNECTED - CONFIGURING NETWORK";
+    else {
+        status = "READY";
+        color = 0xff55e6b5u;
+        append_text(detail, sizeof(detail), "OPEN http://");
+        append_text(detail, sizeof(detail),
+                    ui->status.usb_ethernet_ip_address);
+        append_text(detail, sizeof(detail), "/download/");
+    }
+    draw_choice_grid(ui, pixels, stride, k_usb_ethernet_values,
+                     (int)ARRAY_SIZE(k_usb_ethernet_values),
+                     ui->usb_ethernet_known ? ui->usb_ethernet_index : -1,
+                     2, 126, 68, "USB DIRECT");
+    draw_text_centered(pixels, stride, (rect_t){12, 76, 776, 22},
+                       status, 2, color);
+    if(detail[0] != '\0')
+        draw_text_centered(pixels, stride, (rect_t){12, 100, 776, 20},
+                           detail, 2, 0xffffffffu);
+    /* The USB status strip is drawn after the choice grid. Repaint the top
+     * bar last so its Back/status/battery contents remain fully opaque when
+     * the ARGB layer is composited over the live preview. */
+    draw_top_bar(ui, pixels, stride, "USB DIRECT", 1);
 }
 
 static void draw_drive_modes(const calf_ui_t *ui, uint32_t *pixels, int stride)
@@ -844,11 +880,21 @@ static void draw_settings_category(const calf_ui_t *ui, uint32_t *pixels,
         draw_label_grid(ui, pixels, stride, "UVC", k_live_setting_labels,
                         (int)ARRAY_SIZE(k_live_setting_labels), 2, 108, 142);
     else if(ui->screen == CALF_SCREEN_SETTINGS_NETWORK) {
+        const char *usb_label = k_network_setting_labels[3];
+        if(ui->status.usb_ethernet_enabled == 0)
+            usb_label = "USB DIRECT: OFF";
+        else if(ui->status.usb_ethernet_enabled > 0 &&
+                ui->status.usb_ethernet_configured > 0 &&
+                !text_equal(ui->status.usb_ethernet_ip_address, "") &&
+                !text_equal(ui->status.usb_ethernet_ip_address, "0.0.0.0"))
+            usb_label = "USB DIRECT: READY";
+        else if(ui->status.usb_ethernet_enabled > 0)
+            usb_label = "USB DIRECT: WAITING";
         const char *labels[] = {
             k_network_setting_labels[0],
             ui->wifi_enabled_known && !ui->wifi_enabled
                 ? "TURN WI-FI ON" : "TURN WI-FI OFF",
-            k_network_setting_labels[2], k_network_setting_labels[3],
+            k_network_setting_labels[2], usb_label,
         };
         draw_label_grid(ui, pixels, stride, "NETWORK", labels,
                         (int)ARRAY_SIZE(labels), 2, 112, 142);
@@ -1196,22 +1242,6 @@ static void draw_datetime_adjust(const calf_ui_t *ui, uint32_t *pixels,
     draw_button(pixels, stride, (rect_t){280, 398, 240, 66}, "APPLY", 1, 0);
     if(ui->focus_visible && ui->focus_index == 6)
         draw_focus_frame(pixels, stride, (rect_t){280, 398, 240, 66});
-}
-
-static void draw_lenses(const calf_ui_t *ui, uint32_t *pixels, int stride)
-{
-    int i;
-    fill_rect(pixels, stride, (rect_t){0, 72, 800, 408}, 0xe00c1116u);
-    draw_top_bar(ui, pixels, stride, "INSPECTION", 1);
-    for(i = 0; i < (int)ARRAY_SIZE(k_lenses); ++i) {
-        rect_t rectangle = {16 + i * 262, 126, 244, 218};
-        draw_button(pixels, stride, rectangle, k_lenses[i].label,
-                    ui->lens_known && i == ui->lens_index, 0);
-        if(ui->focus_visible && ui->focus_index == i)
-            draw_focus_frame(pixels, stride, rectangle);
-    }
-    draw_text_centered(pixels, stride, (rect_t){40, 365, 720, 70},
-                       "MODE CHANGE STOPS CAMERA GRAPH", 2, 0xffffd166u);
 }
 
 static void format_media_time(char *text, size_t capacity, int seconds)
@@ -1621,8 +1651,6 @@ void calf_ui_render(const calf_ui_t *ui, uint32_t *argb, int stride_pixels)
                          ui->capture_mode == CALF_CAPTURE_NIGHT ? 4 : 3,
                          88, 108, "ISO");
     }
-    else if(ui->screen == CALF_SCREEN_LENS)
-        draw_lenses(ui, argb, stride_pixels);
     else if(ui->screen == CALF_SCREEN_SETTINGS)
         draw_settings_hub(ui, argb, stride_pixels);
     else if(ui->screen >= CALF_SCREEN_SETTINGS_CAMERA &&
@@ -1716,11 +1744,7 @@ void calf_ui_render(const calf_ui_t *ui, uint32_t *argb, int stride_pixels)
                          ui->auto_time_known ? ui->auto_time_index : -1,
                          2, 126, 218, "AUTO SET");
     else if(ui->screen == CALF_SCREEN_USB_ETHERNET)
-        draw_choice_grid(ui, argb, stride_pixels, k_usb_ethernet_values,
-                         (int)ARRAY_SIZE(k_usb_ethernet_values),
-                         ui->usb_ethernet_known
-                             ? ui->usb_ethernet_index : -1,
-                         2, 80, 82, "USB ETHERNET  192.168.2.101");
+        draw_usb_ethernet(ui, argb, stride_pixels);
     else if(ui->screen == CALF_SCREEN_CAPTURE_MODE)
         draw_choice_grid(ui, argb, stride_pixels, k_capture_modes,
                          (int)ARRAY_SIZE(k_capture_modes),

@@ -93,17 +93,51 @@ lock_owner=$lock_dir/owner
 fps_state=${CALF_CAPTURE_FPS_STATE:-/tmp/calf-capture-fps}
 night_stack_count_file=${CALF_NIGHT_STACK_COUNT:-/tmp/calf-night-stack-count}
 trace_file=${CALF_CAPTURE_TRACE_FILE:-/tmp/calf-capture-trace}
-log_file=${CALF_CAPTURE_LOG:-/mnt/mmcblk1p1/DCIM/calf-capture.log}
+capture_mode_file=${CALF_CAPTURE_MODE_FILE:-/local/calf-ui-capture-mode}
+night_exposure_file=${CALF_NIGHT_EXPOSURE_FILE:-/local/calf-ui-night-exposure}
+night_iso_file=${CALF_NIGHT_ISO_FILE:-/local/calf-ui-night-iso}
 raw_enabled_file=${CALF_RAW_ENABLED_FILE:-/local/calf-raw-enabled}
 raw_capture_dir=${CALF_RAW_CAPTURE_DIR:-/tmp/capture_image}
 raw_count_c0=${CALF_RAW_COUNT_C0:-/tmp/.capture_cnt_c0}
 raw_count_c1=${CALF_RAW_COUNT_C1:-/tmp/.capture_cnt_c1}
 raw_converter=${CALF_RAW_CONVERTER:-/app/bin/calf-raw2dng}
-raw_output_dir=${CALF_RAW_OUTPUT_DIR:-/mnt/mmcblk1p1/DCIM}
 raw_job_dir=${CALF_RAW_JOB_DIR:-/tmp/calf-raw-jobs}
 indicator_led_file=${CALF_INDICATOR_LED_FILE:-/local/calf-ui-indicator-led}
 blue_led_trigger=${CALF_BLUE_LED_TRIGGER:-/sys/class/leds/led-blue/trigger}
 blue_led_brightness=${CALF_BLUE_LED_BRIGHTNESS:-/sys/class/leds/led-blue/brightness}
+
+detect_storage_root()
+{
+    for storage_candidate in /mnt/mmcblk1p1 /mnt/mmcblk1p2 /mnt/sda2; do
+        [ -d "$storage_candidate" ] || continue
+        awk -v wanted="$storage_candidate" '$2 == wanted { found = 1 }
+            END { exit found ? 0 : 1 }' /proc/mounts 2>/dev/null || continue
+        printf '%s' "$storage_candidate"
+        return 0
+    done
+    return 1
+}
+
+storage_root=${CALF_CAPTURE_STORAGE_ROOT:-}
+if [ -z "$storage_root" ]; then
+    storage_root=$(detect_storage_root) || storage_root=
+fi
+if [ -n "${CALF_CAPTURE_LOG:-}" ]; then
+    log_file=$CALF_CAPTURE_LOG
+elif [ -n "$storage_root" ] && [ -d "$storage_root/DCIM" ]; then
+    log_file=$storage_root/DCIM/calf-capture.log
+else
+    # Diagnostics must never prevent the sensor helper from running merely
+    # because removable storage is absent or not mounted yet.
+    log_file=/tmp/calf-capture.log
+fi
+if [ -n "${CALF_RAW_OUTPUT_DIR:-}" ]; then
+    raw_output_dir=$CALF_RAW_OUTPUT_DIR
+elif [ -n "$storage_root" ]; then
+    raw_output_dir=$storage_root/DCIM
+else
+    raw_output_dir=/nonexistent/calf-storage/DCIM
+fi
 
 cr=$(printf '\r')
 while IFS= read -r request_line; do
@@ -632,8 +666,25 @@ if ! printf '%s\n' "$capture_id" > "$trace_file"; then
 fi
 log_trace "stage=request accepted"
 
-exp=$(profile_value exp)
-iso=$(profile_value iso)
+capture_mode=photo
+if [ -r "$capture_mode_file" ]; then
+    read -r capture_mode < "$capture_mode_file"
+fi
+if [ "$capture_mode" = night ]; then
+    exp=
+    iso=
+    if [ -r "$night_exposure_file" ]; then
+        read -r exp < "$night_exposure_file"
+    fi
+    if [ -r "$night_iso_file" ]; then
+        read -r iso < "$night_iso_file"
+    fi
+    [ -n "$exp" ] || exp=0.5
+    [ -n "$iso" ] || iso=iso400
+else
+    exp=$(profile_value exp)
+    iso=$(profile_value iso)
+fi
 [ -n "$exp" ] || exp=-1
 [ -n "$iso" ] || iso=auto
 capture_exp=$exp
@@ -668,7 +719,7 @@ case "$iso" in
         iso=auto
         ;;
 esac
-log_trace "stage=profile exp=$exp iso=$iso capture_exp=$capture_exp fps=$capture_fps stack=$night_stack_count raw_count=$raw_capture_count"
+log_trace "stage=profile mode=$capture_mode exp=$exp iso=$iso capture_exp=$capture_exp fps=$capture_fps stack=$night_stack_count raw_count=$raw_capture_count"
 
 if [ "$capture_fps" = 30 ]; then
     # A 2.1.6 stock profile has no image_params section. In that migration

@@ -83,6 +83,18 @@ printf 'dng\n' > "$final"
 
 
 class CaptureCoordinatorTests(unittest.TestCase):
+    def test_request_resolves_active_storage_instead_of_v11_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            request = Path(temp_name) / "calf-snapshot-request"
+            build_capture_request(request)
+            text = request.read_text(encoding="ascii")
+
+        self.assertIn("detect_storage_root()", text)
+        self.assertIn("/mnt/mmcblk1p1 /mnt/mmcblk1p2 /mnt/sda2", text)
+        self.assertIn("log_file=$storage_root/DCIM/calf-capture.log", text)
+        self.assertIn("log_file=/tmp/calf-capture.log", text)
+        self.assertNotIn("/media/DCIM/calf-capture.log", text)
+
     def test_server_relistens_immediately_after_successful_request(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
             server = Path(temp_name) / "calf-capture-server"
@@ -128,6 +140,8 @@ class CaptureCoordinatorTests(unittest.TestCase):
         fail_snapshot: bool = False,
         stale_raw_triggers: bool = False,
         profile_has_image_params: bool = True,
+        night_exp: str | None = None,
+        night_iso: str = "iso100",
     ) -> tuple[str, list[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -143,6 +157,9 @@ class CaptureCoordinatorTests(unittest.TestCase):
         night_stack_count = temp / "night-stack-count"
         trace_file = temp / "capture-trace"
         capture_log = temp / "capture.log"
+        capture_mode_file = temp / "capture-mode"
+        night_exposure_file = temp / "night-exposure"
+        night_iso_file = temp / "night-iso"
         raw_enabled_file = temp / "raw-enabled"
         indicator_led_file = temp / "indicator-led"
         blue_led_trigger = temp / "blue-trigger"
@@ -174,6 +191,10 @@ class CaptureCoordinatorTests(unittest.TestCase):
         )
         if stale_lock or live_lock:
             lock.mkdir()
+        if night_exp is not None:
+            capture_mode_file.write_text("night\n", encoding="ascii")
+            night_exposure_file.write_text(f"{night_exp}\n", encoding="ascii")
+            night_iso_file.write_text(f"{night_iso}\n", encoding="ascii")
         if raw_enabled:
             raw_enabled_file.write_text("1\n", encoding="ascii")
         indicator_led_file.write_text(
@@ -201,6 +222,9 @@ class CaptureCoordinatorTests(unittest.TestCase):
                 "CALF_NIGHT_STACK_COUNT": str(night_stack_count),
                 "CALF_CAPTURE_TRACE_FILE": str(trace_file),
                 "CALF_CAPTURE_LOG": str(capture_log),
+                "CALF_CAPTURE_MODE_FILE": str(capture_mode_file),
+                "CALF_NIGHT_EXPOSURE_FILE": str(night_exposure_file),
+                "CALF_NIGHT_ISO_FILE": str(night_iso_file),
                 "CALF_RAW_ENABLED_FILE": str(raw_enabled_file),
                 "CALF_RAW_CAPTURE_DIR": str(temp / "raw-capture"),
                 "CALF_RAW_COUNT_C0": str(temp / "capture-c0"),
@@ -305,6 +329,23 @@ class CaptureCoordinatorTests(unittest.TestCase):
             combined.index("sensor-timing 2"),
             combined.index('"value":"0.5"'),
         )
+
+    def test_night_mode_uses_its_persisted_pair_not_photo_profile(self) -> None:
+        output, calls, temp = self._run_request(
+            "0.0333333",
+            "iso400",
+            night_exp="0.5",
+            night_iso="iso100",
+        )
+
+        self.assertIn("HTTP/1.1 200 OK", output)
+        combined = "\n".join(calls)
+        self.assertIn("sensor-timing 2", combined)
+        self.assertIn('"value":"0.5"', combined)
+        self.assertIn('"value":"iso100"', combined)
+        self.assertNotIn('"value":"iso400"', combined)
+        trace = (temp / "capture.log").read_text(encoding="ascii")
+        self.assertIn("stage=profile mode=night exp=0.5 iso=iso100", trace)
 
     def test_all_slow_exposures_select_matching_sensor_timing(self) -> None:
         for exposure, fps in (

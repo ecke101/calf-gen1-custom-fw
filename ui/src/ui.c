@@ -192,12 +192,6 @@ int calf_iso_allowed(calf_capture_mode_t mode, const char *value)
     return 0;
 }
 
-const choice_t k_lenses[] = {
-    {"LEFT", "SENSOR0_4K"},
-    {"STEREO", "PRIMARY"},
-    {"RIGHT", "SENSOR1_4K"},
-};
-
 const choice_t k_capture_modes[] = {
     {"PHOTO", "photo"}, {"NIGHT", "night"}, {"VIDEO", "recording"},
 };
@@ -819,6 +813,8 @@ void calf_ui_init(calf_ui_t *ui)
     ui->status.streaming = -1;
     ui->status.playback = -1;
     ui->status.usb_power = -1;
+    ui->status.usb_ethernet_enabled = -1;
+    ui->status.usb_ethernet_configured = -1;
     text_copy(ui->message, sizeof(ui->message), "BOOTING");
     ui->revision = 1;
 }
@@ -1057,9 +1053,30 @@ void calf_ui_set_status(calf_ui_t *ui, const calf_backend_status_t *status)
        ui->status.streaming != status->streaming ||
        ui->status.playback != status->playback ||
        ui->status.usb_power != status->usb_power ||
+       ui->status.usb_ethernet_enabled != status->usb_ethernet_enabled ||
+       ui->status.usb_ethernet_configured !=
+           status->usb_ethernet_configured ||
        !text_equal(ui->status.ethernet_ip_address,
-                   status->ethernet_ip_address)) {
+                   status->ethernet_ip_address) ||
+       !text_equal(ui->status.usb_ethernet_port,
+                   status->usb_ethernet_port) ||
+       !text_equal(ui->status.usb_ethernet_os,
+                   status->usb_ethernet_os) ||
+       !text_equal(ui->status.usb_ethernet_ip_address,
+                   status->usb_ethernet_ip_address)) {
         ui->status = *status;
+        if(status->usb_ethernet_enabled == 0) {
+            ui->usb_ethernet_index = 0;
+            ui->usb_ethernet_known = 1;
+        }
+        else if(status->usb_ethernet_enabled > 0) {
+            int port = text_equal(status->usb_ethernet_port, "USB2") ? 2 : 0;
+            int os = text_equal(status->usb_ethernet_os, "mac") ? 2 : 1;
+            if(port != 0 || text_equal(status->usb_ethernet_port, "USB1")) {
+                ui->usb_ethernet_index = port + os;
+                ui->usb_ethernet_known = 1;
+            }
+        }
         ++ui->revision;
     }
 }

@@ -62,6 +62,30 @@ static int write_attribute(const char *suffix, const char *value)
     return make_path(path, suffix) == 0 ? write_file(path, value) : -1;
 }
 
+static int read_text_file(const char *path, char *output, size_t output_size)
+{
+    size_t length;
+    int descriptor;
+    ssize_t bytes;
+    if (path == NULL || output == NULL || output_size < 2U)
+        return -1;
+    output[0] = '\0';
+    descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (descriptor < 0)
+        return -1;
+    do {
+        bytes = read(descriptor, output, output_size - 1U);
+    } while (bytes < 0 && errno == EINTR);
+    if (close(descriptor) != 0 || bytes < 0)
+        return -1;
+    length = (size_t)bytes;
+    while (length > 0U && (output[length - 1U] == '\n' ||
+                          output[length - 1U] == '\r'))
+        --length;
+    output[length] = '\0';
+    return 0;
+}
+
 static void read_usb_string(const char *path, char *output,
                             size_t output_size, const char *fallback)
 {
@@ -259,4 +283,47 @@ int ngcd_usb_ethernet_set(const char *port, const char *operating_system)
 fail:
     (void)ngcd_usb_ethernet_close();
     return -1;
+}
+
+int ngcd_usb_ethernet_status(struct ngcd_usb_ethernet_info *info)
+{
+    char udc[64];
+    char state_path[160];
+    char state[32];
+    int count;
+    int gadget_state;
+    if (info == NULL)
+        return -1;
+    memset(info, 0, sizeof(*info));
+    memcpy(info->ip_address, "0.0.0.0", sizeof("0.0.0.0"));
+    gadget_state = path_directory(USB_GADGET_PATH);
+    if (gadget_state < 0)
+        return -1;
+    if (gadget_state == 0)
+        return 0;
+    if (read_text_file(USB_GADGET_PATH "/UDC", udc, sizeof(udc)) != 0 ||
+        udc[0] == '\0')
+        return 0;
+
+    info->enabled = true;
+    if (strcmp(udc, ngcd_usb_ethernet_udc("USB1")) == 0)
+        memcpy(info->port, "USB1", sizeof("USB1"));
+    else if (strcmp(udc, ngcd_usb_ethernet_udc("USB2")) == 0)
+        memcpy(info->port, "USB2", sizeof("USB2"));
+    if (path_directory(USB_GADGET_PATH "/functions/rndis.usb0") == 1)
+        memcpy(info->operating_system, "win", sizeof("win"));
+    else if (path_directory(USB_GADGET_PATH "/functions/ecm.usb0") == 1)
+        memcpy(info->operating_system, "mac", sizeof("mac"));
+
+    count = snprintf(state_path, sizeof(state_path),
+                     "/sys/class/udc/%s/state", udc);
+    if (count > 0 && (size_t)count < sizeof(state_path) &&
+        read_text_file(state_path, state, sizeof(state)) == 0 &&
+        (strcmp(state, "configured") == 0 || strcmp(state, "suspended") == 0))
+        info->configured = true;
+    (void)ngcd_network_interface_ipv4("usb0", info->ip_address,
+                                      sizeof(info->ip_address));
+    if (info->ip_address[0] == '\0')
+        memcpy(info->ip_address, "0.0.0.0", sizeof("0.0.0.0"));
+    return 0;
 }

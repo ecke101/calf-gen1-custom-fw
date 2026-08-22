@@ -849,11 +849,10 @@ static int target_histogram(struct ngcd_backend *backend,
 {
     struct target_state *state = backend->private_data;
     int attempt;
-    if (state == NULL || (!backend->state.camera_running &&
-                          state->playback == NULL))
+    if (state == NULL || !backend->state.camera_running)
         return -1;
     for (attempt = 0; attempt < 2; ++attempt) {
-        if (ngcd_rk_display_histogram(&state->display, bins) == 0)
+        if (ngcd_rk_graph_histogram(&state->graph, bins) == 0)
             return 0;
         target_display_retry_delay();
     }
@@ -933,7 +932,12 @@ static int target_restore_graph(struct ngcd_backend *backend,
         return -1;
     }
     backend->state.camera_running = true;
-    if (target_reapply_image_state(backend, dirty) == 0)
+    /* A successful graph-start response must mean the sensors can already
+     * produce new output.  Returning immediately leaves an entering-Night
+     * caller racing RKAIQ initialization; the same transition succeeds after
+     * an arbitrary delay but can fail when issued back-to-back. */
+    if (target_reapply_image_state(backend, dirty) == 0 &&
+        target_wait_sensor_outputs(state, 3000) == 0)
         return 0;
     target_graph_stop(state);
     backend->state.camera_running = false;
@@ -1114,6 +1118,46 @@ static int target_night_preview(struct ngcd_backend *backend, int fps,
                     "ngcd: Night preview bridge failed at 0.12 s ISO %u (%d)\n",
                     iso, result);
             failure = result != -1 ? result : -30;
+            goto rollback;
+        }
+        /* On this IMX577/RKAIQ build, extending the manual range again while
+         * the freshly rearmed streams remain live is accepted by the control
+         * API but never reaches an applied frame.  Reasserting the same 4 fps
+         * timing performs the coordinated external-then-internal stream rearm
+         * proven necessary on hardware; it does not pass through 30 fps. */
+        if (run_sensor_timing_helper(fps) != 0) {
+            failure = -35;
+            goto rollback;
+        }
+        /* Match the sensor progress that occurs between two successful
+         * Night-preview requests.  A backend tick only drains work that is
+         * already queued; immediately after the second rearm it can return
+         * before either 4 fps sensor has produced a new frame.  Drain stale
+         * output and require one newly produced frame from both sensors
+         * before asking RKAIQ to expand the manual range. */
+        if (target_wait_sensor_outputs(state, 3000) != 0) {
+            failure = -36;
+            goto rollback;
+        }
+        /* Complete the same stable 120 ms state that a successful bridge
+         * request would publish before a following 240 ms request.  The
+         * rearm's low-level exposure control is not sufficient: RKAIQ must
+         * accept and apply the bridge pair again on the fresh streams. */
+        {
+            int result = target_apply_preview_pair(state, 0.12f, iso);
+            if (result != 0) {
+                fprintf(stderr,
+                        "ngcd: Night preview bridge stabilization failed "
+                        "at 0.12 s ISO %u (%d)\n",
+                        iso, result);
+                failure = -37;
+                goto rollback;
+            }
+        }
+        /* This mirrors the timing assertion at the beginning of the second
+         * proven request while retaining one rollback boundary for the UI. */
+        if (run_sensor_timing_helper(fps) != 0) {
+            failure = -38;
             goto rollback;
         }
     }
@@ -1628,8 +1672,12 @@ static void read_capture_trace(char trace[64])
 static void capture_tracef(const char *trace, const char *stage,
                            const char *result, const char *format, ...)
 {
-    static const char log_path[] =
-        "/mnt/mmcblk1p1/DCIM/calf-capture.log";
+    static const char *const log_paths[] = {
+        "/mnt/mmcblk1p1/DCIM/calf-capture.log",
+        "/mnt/mmcblk1p2/DCIM/calf-capture.log",
+        "/mnt/sda2/DCIM/calf-capture.log",
+        "/tmp/calf-capture.log",
+    };
     struct timespec now;
     char line[768];
     size_t used = 0U;
@@ -1637,6 +1685,7 @@ static void capture_tracef(const char *trace, const char *stage,
     va_list arguments;
     int count;
     int descriptor;
+    size_t path_index;
     long seconds = 0L;
     long milliseconds = 0L;
     if (clock_gettime(CLOCK_REALTIME, &now) == 0) {
@@ -1670,9 +1719,17 @@ static void capture_tracef(const char *trace, const char *stage,
     line[used] = '\0';
     (void)fwrite(line, 1U, used, stderr);
     (void)fflush(stderr);
-    descriptor = open(log_path,
-                      O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW,
-                      0644);
+    descriptor = -1;
+    for (path_index = 0U;
+         path_index < sizeof(log_paths) / sizeof(log_paths[0]);
+         ++path_index) {
+        descriptor = open(
+            log_paths[path_index],
+            O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW,
+            0644);
+        if (descriptor >= 0)
+            break;
+    }
     if (descriptor < 0)
         return;
     length = 0U;
@@ -2581,6 +2638,13 @@ static int target_usb_ethernet(struct ngcd_backend *backend, const char *port,
                   : ngcd_usb_ethernet_close();
 }
 
+static int target_usb_ethernet_status(
+    struct ngcd_backend *backend, struct ngcd_usb_ethernet_info *info)
+{
+    (void)backend;
+    return ngcd_usb_ethernet_status(info);
+}
+
 static int target_ethernet_status(struct ngcd_backend *backend,
                                   struct ngcd_ethernet_info *info)
 {
@@ -2631,6 +2695,7 @@ static const struct ngcd_backend_ops TARGET_OPS = {
     .wifi_status = target_wifi_status,
     .wifi_scan = target_wifi_scan,
     .usb_ethernet = target_usb_ethernet,
+    .usb_ethernet_status = target_usb_ethernet_status,
     .ethernet_status = target_ethernet_status,
     .power_status = target_power_status,
     .system_action = target_system_action,
